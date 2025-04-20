@@ -1,0 +1,6 @@
+table,player1,player2,score1,score2,table_size,dropout1,dropout2
+1,Spieler 6,Spieler 8,0,2,10,false,false
+2,Spieler 9,Spieler 7,2,0,10,false,false
+3,Spieler 3,Spieler 4,1,2,10,false,false
+4,Spieler 1,Spieler 5,2,1,10,false,false
+5,Spieler 10,Spieler 2,2,1,10,false,false

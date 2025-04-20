@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Match Results</title>
+</head>
+<body>
+    <h1>Match Results</h1>
+    <table border="1">
+        <tr>
+            <th>Table</th>
+            <th>Player 1</th>
+            <th>Player 2</th>
+            <th>Result</th>
+        </tr>
+        {% for match in matches %}
+        <tr>
+            <td>{{ match.table }}</td>
+            <td>{{ match.player1 }}</td>
+            <td>{{ match.player2 }}</td>
+            <td>
+                <select name="score1">
+                    <option>0</option>
+                    <option>1</option>
+                    <option>2</option>
+                </select>
+                -
+                <select name="score2">
+                    <option>0</option>
+                    <option>1</option>
+                    <option>2</option>
+                </select>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
