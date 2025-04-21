@@ -1,7 +1,14 @@
 from flask import Flask
+import os
+from dotenv import load_dotenv
+
+# Lade Umgebungsvariablen aus .env Datei
+load_dotenv()
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'  # In Produktion sollten Sie einen sicheren Schlüssel verwenden
+
+# Secret Key aus Umgebungsvariablen oder Fallback
+app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY') or os.urandom(24)
 
 from app import routes
 

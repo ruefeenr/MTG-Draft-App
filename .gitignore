@@ -38,6 +38,10 @@ data/
 *.csv
 *.json
 
+# Environment variables
+.env
+.env.*
+
 # OS
 .DS_Store
 Thumbs.db 
