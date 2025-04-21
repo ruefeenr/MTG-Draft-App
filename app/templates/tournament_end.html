@@ -55,6 +55,23 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
+        /* Spezifische Farben für verschiedene Tischgrößen */
+        .table-group-header-6 {
+            background: linear-gradient(135deg, #4a90e2 0%, #2ecc71 100%);
+        }
+
+        .table-group-header-8 {
+            background: linear-gradient(135deg, #9b59b6 0%, #3498db 100%);
+        }
+
+        .table-group-header-10 {
+            background: linear-gradient(135deg, #e74c3c 0%, #f39c12 100%);
+        }
+
+        .table-group-header-12 {
+            background: linear-gradient(135deg, #8e44ad 0%, #d35400 100%);
+        }
+
         .leaderboard {
             margin-bottom: 30px;
             width: 100%;
@@ -74,6 +91,7 @@
             font-size: 1.2em;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            text-align: center;
         }
 
         .leaderboard tr:nth-child(even) {
@@ -86,6 +104,7 @@
             border-bottom: 1px solid rgba(74, 144, 226, 0.1);
             font-weight: 500;
             color: #2c3e50;
+            text-align: center;
         }
 
         .leaderboard tr:hover {
@@ -135,7 +154,7 @@
     {% for table_size in ["6", "8", "10", "12"] %}
         {% if tournament_data.player_groups and table_size in tournament_data.player_groups %}
             <div class="table-group-section">
-                <div class="table-group-header">
+                <div class="table-group-header table-group-header-{{ table_size }}">
                     🎲 {{ table_size }}-Spieler Tisch
                 </div>
 
@@ -148,6 +167,7 @@
                             <th>Ergebnisse</th>
                             <th>OMW</th>
                             <th>GW</th>
+                            <th>OGW</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -171,6 +191,7 @@
                                     <td>{{ player[2] }}</td>
                                     <td>{{ player[3] }}</td>
                                     <td>{{ player[4] }}</td>
+                                    <td>{{ player[5] }}</td>
                                 </tr>
                                 {% set rank.value = rank.value + 1 %}
                             {% endif %}
@@ -181,6 +202,9 @@
         {% endif %}
     {% endfor %}
 
-    <a href="{{ url_for('main.index') }}" class="new-tournament-btn">Neues Turnier starten</a>
+    <div style="display: flex; justify-content: center; gap: 20px; margin: 40px auto;">
+        <button onclick="history.back()" class="new-tournament-btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">Zurück zum Turnier</button>
+        <a href="{{ url_for('main.index') }}" class="new-tournament-btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">Neues Turnier starten</a>
+    </div>
 </body>
 </html> 

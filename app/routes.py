@@ -10,10 +10,16 @@ from collections import defaultdict
 import json
 import base64
 
+# Debug-Modus - auf False setzen für Produktionsumgebung
+DEBUG = True
+
 main = Blueprint('main', __name__)
 
 def debug_emoji(text, prefix=""):
     """Hilft bei der Identifizierung von Problemen mit Unicode-Symbolen wie dem 🦵"""
+    if not DEBUG:
+        return text
+    
     if text and isinstance(text, str):
         has_leg = "🦵" in text
         byte_repr = str(text.encode('utf-8'))
@@ -21,6 +27,39 @@ def debug_emoji(text, prefix=""):
     else:
         print(f"{prefix} Kein Text oder kein String: {type(text)}")
     return text
+
+def is_player_marked(player_name):
+    """Prüft, ob ein Spieler als Dropout markiert ist (anhand der Session)"""
+    if not player_name or not isinstance(player_name, str):
+        return False
+    marked_players = session.get("leg_players_set", [])
+    return player_name in marked_players
+
+def mark_player(player_name):
+    """Fügt das 🦵-Symbol zu einem Spielernamen hinzu, wenn er in der markierten Liste ist."""
+    if not player_name or not isinstance(player_name, str):
+        return player_name
+    
+    marked_players = session.get("leg_players_set", [])
+    if player_name in marked_players:
+        if "🦵" not in player_name:  # Stelle sicher, dass das Symbol nur einmal hinzugefügt wird
+            return f"{player_name} 🦵"
+    return player_name
+
+def get_display_name(player_name):
+    """Gibt den Anzeigenamen für einen Spieler zurück, inkl. 🦵-Symbol wenn markiert"""
+    if not player_name or not isinstance(player_name, str):
+        return player_name
+    
+    # Für BYE, verwende das 🦵-Symbol als Anzeigename
+    if player_name == "BYE":
+        return "🦵"
+    
+    # Für markierte Spieler füge das 🦵-Symbol hinzu
+    if is_player_marked(player_name):
+        return f"{player_name} 🦵"
+    
+    return player_name
 
 def generate_secret_key():
     """Generiert einen sicheren Secret Key"""
@@ -69,7 +108,7 @@ def find_all_valid_groupings(player_count, allowed_sizes):
     
     Args:
         player_count: Gesamtzahl der Spieler
-        allowed_sizes: Liste der erlaubten Tischgrößen
+        allowed_sizes: Liste der erlaubten Tischgrössen
     
     Returns:
         Liste von Tupeln mit möglichen Gruppierungen
@@ -87,7 +126,7 @@ def find_all_valid_groupings(player_count, allowed_sizes):
                 valid_groupings.append(sorted_grouping)
             return
         
-        # Probiere jede erlaubte Tischgröße
+        # Probiere jede erlaubte Tischgrösse
         for size in sorted(allowed_sizes, reverse=True):
             if size <= remaining_players:
                 find_combinations(remaining_players - size, current_grouping + [size])
@@ -129,12 +168,23 @@ def pair():
     data_dir = os.path.join("data", tournament_id)
     os.makedirs(data_dir, exist_ok=True)
 
-    # Initialisiere die Liste der markierten Spieler
-    session["leg_players_set"] = []  # Als leere Liste initialisieren
+    # Initialisiere die Liste der markierten Spieler, nur wenn sie nicht existiert
+    if "leg_players_set" not in session:
+        session["leg_players_set"] = []  # Als leere Liste initialisieren
     
-    # Verarbeite die Spielerliste und markiere Spieler mit 🦵-Symbol
+    # Verarbeite die Spielerliste - ohne Markierung in dieser Phase
     original_players = request.form.getlist("players")
-    players = [mark_player(p) for p in original_players]
+    
+    # Überprüfe auf doppelte Spielernamen
+    seen_players = set()
+    duplicate_players = [p for p in original_players if p in seen_players or seen_players.add(p)]
+    
+    if duplicate_players:
+        return render_template("index.html", 
+                               error=f"Doppelte Spielernamen gefunden: {', '.join(duplicate_players)}. Bitte geben Sie eindeutige Namen ein.",
+                               players_text="\n".join(original_players))
+    
+    players = original_players  # Keine Markierung in dieser Phase
     
     group_sizes = request.form.getlist("group_sizes")
     
@@ -143,7 +193,7 @@ def pair():
         allowed_sizes = [int(size) for size in group_sizes]
         if not allowed_sizes:
             return render_template("index.html", 
-                                error="Bitte wählen Sie mindestens eine Tischgröße aus.",
+                                error="Bitte wählen Sie mindestens eine Tischgrösse aus.",
                                 players_text="\n".join(players))
         
         # Finde mögliche Gruppierungen
@@ -151,14 +201,17 @@ def pair():
         
         if not groupings:
             return render_template("index.html", 
-                                error=f"Keine gültige Gruppierung für {len(players)} Spieler mit den Tischgrößen {allowed_sizes} möglich.",
+                                error=f"Keine gültige Gruppierung für {len(players)} Spieler mit den Tischgrössen {allowed_sizes} möglich.",
                                 players_text="\n".join(players))
         
         # Wähle die erste gültige Gruppierung
         selected_grouping = groupings[0]
         
         # Mische die Spieler
+        # Setze einen konstanten Seed für Reproduzierbarkeit
+        random.seed(42)
         random.shuffle(players)
+        
         pairings = []
         match_list = []
         start = 0
@@ -171,7 +224,14 @@ def pair():
             # Hole die Spieler für diese Gruppe
             group = players[start:start + group_size]
             group_players = group.copy()  # Kopiere die Liste für die Session
-            player_groups[str(group_size)] = group_players  # Speichere als String-Key
+            
+            # Wenn die Tischgröße bereits vorhanden ist, füge die Spieler hinzu statt zu überschreiben
+            size_key = str(group_size)
+            if size_key in player_groups:
+                player_groups[size_key].extend(group_players)
+            else:
+                player_groups[size_key] = group_players  # Speichere als String-Key
+                
             pairings.append(group)
             start += group_size
 
@@ -215,15 +275,15 @@ def pair():
         
         # Leite zur show_round Route weiter
         return redirect(url_for('main.show_round', round_number=current_round))
-        
+    
     except ValueError as e:
         return render_template("index.html", 
-                             error=f"Fehler bei der Verarbeitung der Gruppengrößen: {str(e)}",
-                             players_text="\n".join(players))
+                            error=f"Fehler bei der Verarbeitung der Gruppengrößen: {str(e)}",
+                            players_text="\n".join(players))
     except Exception as e:
         return render_template("index.html", 
-                             error=f"Ein unerwarteter Fehler ist aufgetreten: {str(e)}",
-                             players_text="\n".join(players))
+                            error=f"Ein unerwarteter Fehler ist aufgetreten: {str(e)}",
+                            players_text="\n".join(players))
 
 def ensure_data_directory():
     """Stellt sicher, dass das Datenverzeichnis existiert"""
@@ -239,46 +299,163 @@ def ensure_data_directory():
 @main.route("/save_results", methods=["POST"])
 def save_results():
     tournament_id = session.get("tournament_id", "unknown")
+    if not tournament_id:
+        return redirect(url_for("main.index"))
 
-    player1_list = request.form.getlist("player1")
-    player2_list = request.form.getlist("player2")
-    table_list = request.form.getlist("table")
-    score1_list = request.form.getlist("score1")
-    score2_list = request.form.getlist("score2")
-
-    results = zip(table_list, player1_list, player2_list, score1_list, score2_list)
-    results_data = list(results)  # Konvertiere zu Liste für mehrfache Verwendung
+    print("\n\n=== SAVE_RESULTS AUFGERUFEN ===")
+    print(f"Tournament ID: {tournament_id}")
     
-    # Validierung der Ergebnisse
-    for _, _, _, s1, s2 in results_data:
-        try:
-            score1 = int(s1)
-            score2 = int(s2)
-            if score1 < 0 or score2 < 0:
-                return "<h2>Fehler: Negative Punktzahlen sind nicht erlaubt!</h2><p><a href='/'>Zurück</a></p>"
-        except ValueError:
-            return "<h2>Fehler: Ungültige Punktzahlen!</h2><p><a href='/'>Zurück</a></p>"
-
-    # Stelle sicher, dass das Verzeichnis existiert
-    if not ensure_data_directory():
-        return "<h2>Fehler: Konnte Datenverzeichnis nicht erstellen!</h2><p><a href='/'>Zurück</a></p>"
-
+    # Formular-Daten holen
+    table = request.form.get("table")
+    player1 = request.form.get("player1")
+    player2 = request.form.get("player2")
+    score1 = request.form.get("score1", "0")
+    score2 = request.form.get("score2", "0")
+    current_round = request.form.get("current_round", "1")
+    dropout1 = request.form.get("dropout1") == "true"
+    dropout2 = request.form.get("dropout2") == "true"
+    table_size = request.form.get("table_size", "6")  # Standardwert 6, falls nicht angegeben
+    
+    print(f"Daten aus Formular: Tisch {table}, {player1} vs {player2}, Ergebnis: {score1}-{score2}, Tischgrösse: {table_size}, Runde: {current_round}")
+    print(f"Dropout1: {dropout1}, Dropout2: {dropout2}")
+    
+    # In results.csv speichern
     results_file = os.path.join("tournament_data", "results.csv")
+    os.makedirs("tournament_data", exist_ok=True)
     file_exists = os.path.isfile(results_file)
-
+    
     try:
         with open(results_file, "a", newline="", encoding="utf-8") as csvfile:
             writer = csv.writer(csvfile)
             if not file_exists:
                 writer.writerow(["Tournament", "Timestamp", "Table", "Player 1", "Score 1", "Player 2", "Score 2"])
-
-            for table, p1, p2, s1, s2 in results_data:
-                writer.writerow([tournament_id, datetime.now().isoformat(), table, p1, s1, p2, s2])
+            writer.writerow([tournament_id, datetime.now().isoformat(), table, player1, score1, player2, score2])
+        print(f"Ergebnis in results.csv gespeichert")
     except Exception as e:
-        print(f"Error saving results: {e}")
-        flash("Fehler beim Speichern der Ergebnisse", "error")
+        print(f"Fehler beim Speichern in results.csv: {e}")
+        return redirect(url_for("main.show_round", round_number=int(current_round)))
 
-    return "<h2>Resultate gespeichert!</h2><p><a href='/'>Zurück zur Startseite</a></p>"
+    
+    # In Rundendatei aktualisieren
+    try:
+        data_dir = os.path.join("data", tournament_id)
+        rounds_dir = os.path.join(data_dir, "rounds")
+        round_file = os.path.join(rounds_dir, f"round_{current_round}.csv")
+        
+        print(f"Versuche, Ergebnis in {round_file} zu aktualisieren")
+        
+        if not os.path.exists(round_file):
+            print(f"FEHLER: Rundendatei existiert nicht: {round_file}")
+            return redirect(url_for("main.show_round", round_number=int(current_round)))
+        
+        # Datei lesen
+        matches = []
+        fieldnames = []
+        try:
+            with open(round_file, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames
+                print(f"Feldnamen in CSV: {fieldnames}")
+                
+                # Stelle sicher, dass alle benötigten Felder in fieldnames sind
+                required_fields = ['table', 'player1', 'player2', 'score1', 'score2', 'table_size', 'dropout1', 'dropout2', 'display_player1', 'display_player2']
+                for field in required_fields:
+                    if field not in fieldnames:
+                        fieldnames.append(field)
+                        print(f"Feldname '{field}' zur CSV hinzugefügt")
+                
+                # Lese alle Matches
+                for row in reader:
+                    # Stelle sicher, dass jedes Match alle Felder hat
+                    for field in fieldnames:
+                        if field not in row:
+                            row[field] = ""
+                    matches.append(row)
+                    
+            print(f"Matches aus Datei gelesen: {len(matches)}")
+        except Exception as e:
+            print(f"Fehler beim Lesen der Rundendatei: {e}")
+            return redirect(url_for("main.show_round", round_number=int(current_round)))
+        
+        # Match finden und aktualisieren
+        match_found = False
+        for match in matches:
+            print(f"Vergleiche Match: Tisch {match.get('table', 'unbekannt')} mit {table}")
+            if str(match.get("table", "")) == str(table):
+                print(f"Tisch gefunden! Spieler: {match.get('player1', '')} vs {match.get('player2', '')}")
+                
+                # Aktualisiere alle relevanten Werte
+                match["score1"] = score1
+                match["score2"] = score2
+                match["dropout1"] = "true" if dropout1 else "false"
+                match["dropout2"] = "true" if dropout2 else "false"
+                
+                # Stelle sicher, dass table_size als String gesetzt ist
+                match["table_size"] = str(table_size)
+                
+                # Aktualisiere die display_player Felder
+                if "display_player1" not in match or not match["display_player1"]:
+                    match["display_player1"] = match["player1"]
+                if "display_player2" not in match or not match["display_player2"]:
+                    match["display_player2"] = match["player2"]
+                
+                # Füge Spieler zur markierten Liste hinzu oder entferne sie, basierend auf dropout-Status
+                marked_players = session.get("leg_players_set", [])
+                
+                # Für Spieler 1
+                if dropout1 and match['player1'] not in marked_players:
+                    marked_players.append(match['player1'])
+                    match['display_player1'] = get_display_name(match['player1'])
+                    print(f"🦵-Status zu Spieler 1 hinzugefügt: {match['player1']}")
+                elif not dropout1 and match['player1'] in marked_players:
+                    marked_players.remove(match['player1'])
+                    match['display_player1'] = match['player1']
+                    print(f"🦵-Status von Spieler 1 entfernt: {match['player1']}")
+                
+                # Für Spieler 2 (wenn nicht BYE)
+                if match['player2'] != "BYE":
+                    if dropout2 and match['player2'] not in marked_players:
+                        marked_players.append(match['player2'])
+                        match['display_player2'] = get_display_name(match['player2'])
+                        print(f"🦵-Status zu Spieler 2 hinzugefügt: {match['player2']}")
+                    elif not dropout2 and match['player2'] in marked_players:
+                        marked_players.remove(match['player2'])
+                        match['display_player2'] = match['player2']
+                        print(f"🦵-Status von Spieler 2 entfernt: {match['player2']}")
+                
+                # Aktualisiere die Session
+                session["leg_players_set"] = marked_players
+                
+                match_found = True
+                print(f"Match aktualisiert: {match}")
+                break
+        
+        if not match_found:
+            print(f"WARNUNG: Kein passendes Match für Tisch {table} gefunden!")
+        
+        # Debug-Ausgabe aller zu speichernder Matches
+        print("\nAlle Matches, die gespeichert werden:")
+        for i, match in enumerate(matches):
+            table_size_value = match.get("table_size", "nicht gesetzt")
+            print(f"Match {i+1}: Tisch {match.get('table', '')}, {match.get('player1', '')} vs {match.get('player2', '')}, Score: {match.get('score1', '')}-{match.get('score2', '')}, Tischgrösse: {table_size_value}")
+        
+        # Datei zurückschreiben
+        try:
+            with open(round_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(matches)
+            print(f"Rundendatei erfolgreich aktualisiert")
+        except Exception as e:
+            print(f"Fehler beim Schreiben der Rundendatei: {e}")
+    except Exception as e:
+        import traceback
+        print(f"Allgemeiner Fehler bei Rundendatei: {e}")
+        print(traceback.format_exc())
+    
+    # Zurück zur Rundenansicht
+    print(f"Leite weiter zu Runde {current_round}")
+    return redirect(url_for("main.show_round", round_number=int(current_round)))
 
 def calculate_mtg_stats(results_file, tournament_id):
     """Berechnet MTG-spezifische Turnierstatistiken"""
@@ -299,7 +476,7 @@ def calculate_mtg_stats(results_file, tournament_id):
             for row in reader:
                 if row["Tournament"] != tournament_id:
                     continue
-                    
+
                 p1, p2 = row["Player 1"], row["Player 2"]
                 s1, s2 = int(row["Score 1"]), int(row["Score 2"])
                 
@@ -327,12 +504,13 @@ def calculate_mtg_stats(results_file, tournament_id):
                 # Gegner für Tiebreaker
                 stats[p1]['opponents'].add(p2)
                 stats[p2]['opponents'].add(p1)
-                
+
     except (IOError, OSError) as e:
         print(f"Fehler beim Lesen der Ergebnisse: {e}")
         return {}
-        
+
     return stats
+
 
 def calculate_tiebreakers(stats):
     """Berechnet MTG Tiebreaker (OMW%, GWP%)"""
@@ -378,8 +556,8 @@ def get_player_opponents(tournament_id, current_round):
                 for match in reader:
                     player1 = match["player1"]
                     player2 = match["player2"]
-                    # Debug: Spieler mit Symbol überprüfen
-                    if "🦵" in player1 or "🦵" in player2:
+                    # Debug: Markierte Spieler überprüfen
+                    if player1 in session.get("leg_players_set", []) or player2 in session.get("leg_players_set", []):
                         print(f"Gegner-Historie Runde {round_num}: {player1} vs {player2}")
                     # Speichere auch die Runde, in der sie gegeneinander gespielt haben
                     opponents[player1].append((player2, round_num))
@@ -406,13 +584,12 @@ def next_round():
         player_groups = json.load(f)
     
     # Stelle sicher, dass die markierten Spieler in der Session bleiben
-    # Wenn keine markierten Spieler in der Session sind, erstelle eine leere Liste
     if "leg_players_set" not in session:
         session["leg_players_set"] = []
     
     # Debug-Ausgabe der markierten Spieler
     marked_players = session.get("leg_players_set", [])
-    print(f"Markierte Spieler in next_round: {marked_players}")
+    print(f"Markierte Spieler (mit 🦵): {marked_players}")
     
     # Bestimme die aktuelle Runde
     current_round = len([f for f in os.listdir(rounds_dir) if f.startswith('round_') and f.endswith('.csv')])
@@ -426,122 +603,100 @@ def next_round():
     # Erstelle neue Paarungen für die nächste Runde
     match_list = []
     table_nr = 1
-    
+
     # Erstelle Paarungen für jede Gruppe separat
     for group_size, group_players in player_groups.items():
-        # Sortiere Spieler dieser Gruppe nach Punkten
-        current_group = []
-        for player in group_players:
+        # Entferne markierte Spieler aus der aktiven Liste
+        active_players = [p for p in group_players if not is_player_marked(p)]
+        print(f"Aktive Spieler in Gruppe {group_size}: {active_players}")
+        
+        # Sortiere aktive Spieler nach Punkten für bessere Paarungen
+        sorted_players = []
+        for player in active_players:
             player_stats = next((p for p in leaderboard if p[0] == player), None)
             if player_stats:
-                current_group.append(player_stats)
+                sorted_players.append((player, int(player_stats[1]), player))
             else:
-                current_group.append((player, 0, "0-0", "0.00%", "0.00%"))
+                sorted_players.append((player, 0, player))
         
-        # Sortiere nach Punkten, OMW% und GW%
-        current_group.sort(key=lambda x: (
-            -int(x[1]),  # Punkte (negativ für absteigende Sortierung)
-            -float(x[3].rstrip('%')),  # OMW% (negativ für absteigende Sortierung)
-            -float(x[4].rstrip('%')),  # GW% (negativ für absteigende Sortierung)
-            x[0]  # Name (aufsteigend)
-        ))
-        sorted_players = [p[0] for p in current_group]
+        # Sortiere nach Punkten (absteigend) und dann nach Namen
+        sorted_players.sort(key=lambda x: (-x[1], x[2]))
+        sorted_players = [p[0] for p in sorted_players]
         
-        # Erstelle Paarungen für diese Gruppe
-        paired = set()
-        
-        # Spieler mit 🦵-Symbol identifizieren
-        leg_players = [p for p in sorted_players if is_player_marked(p)]
-        print(f"Spieler mit Bein-Markierung: {leg_players}")
-        
-        # Wenn genau 2 Spieler das Symbol haben, paare sie immer miteinander
-        if len(leg_players) == 2:
-            p1, p2 = leg_players[0], leg_players[1]
-            
-            # Direktes Matching mit absoluter Priorität
+        if len(sorted_players) % 2 != 0:
+            # Der niedrigstplatzierte Spieler bekommt ein BYE
+            bye_player = sorted_players.pop()
             match_list.append({
                 "table": str(table_nr),
-                "player1": p1,
-                "player2": p2,
-                "score1": "",
-                "score2": "",
+                "player1": bye_player,
+                "player2": "BYE",
+                "score1": "2",  # Automatischer Sieg für den Spieler
+                "score2": "0",
                 "table_size": group_size
             })
-            paired.add(p1)
-            paired.add(p2)
             table_nr += 1
-            print(f"Direktes Match erstellt zwischen {p1} und {p2}")
+            print(f"BYE-Match: {bye_player} vs BYE mit automatischem Ergebnis 2:0")
         
-        # Wenn mehr als 2 Spieler das Symbol haben, wende optimierte Paarungslogik an
-        elif len(leg_players) > 2:
-            # Optimierte Paarungslogik für Spieler mit 🦵-Symbol
-            for i in range(len(leg_players)):
-                if leg_players[i] in paired:
-                    continue
+        # Matche die restlichen Spieler
+        for i in range(0, len(sorted_players), 2):
+            if i + 1 < len(sorted_players):
+                p1, p2 = sorted_players[i], sorted_players[i+1]
                 
-                # Suche nach passendem Gegner unter den Spielern mit 🦵-Symbol
-                best_opponent = None
-                best_opponent_score = float('inf')  # Niedrigerer Score ist besser
-                
-                for j in range(len(leg_players)):
-                    if i == j or leg_players[j] in paired:
-                        continue
-                    
-                    # Berechne Score für diesen potenziellen Gegner
-                    opponent_score = 0
-                    player1 = leg_players[i]
-                    player2 = leg_players[j]
-                    
-                    # Prüfe die Gegner-Historie
-                    player1_opponents = [opp[0] for opp in opponents.get(player1, [])]
-                    
-                    # Wenn sie bereits gegeneinander gespielt haben, erhöhe den Score
-                    if player2 in player1_opponents:
-                        # Finde die Runde, in der sie gegeneinander gespielt haben
-                        for opp, round_num in opponents.get(player1, []):
-                            if opp == player2:
-                                # Je näher die Runde, desto höher der Score (schlechter)
-                                opponent_score += (current_round - round_num + 1) * 10
+                # Prüfe, ob sie bereits gegeneinander gespielt haben
+                player1_opponents = [opp[0] for opp in opponents.get(p1, [])]
+                if p2 in player1_opponents and i + 2 < len(sorted_players):
+                    # Versuche, einen anderen Gegner zu finden
+                    for j in range(i+2, len(sorted_players), 2):
+                        if j + 1 < len(sorted_players):
+                            alt_p2 = sorted_players[j]
+                            alt_p1 = sorted_players[j+1]
+                            alt_p1_opponents = [opp[0] for opp in opponents.get(alt_p1, [])]
+                            alt_p2_opponents = [opp[0] for opp in opponents.get(alt_p2, [])]
+                            
+                            if p1 not in alt_p2_opponents and p2 not in alt_p1_opponents:
+                                # Tausche die Gegner
+                                sorted_players[i+1], sorted_players[j] = sorted_players[j], sorted_players[i+1]
+                                sorted_players[j+1], sorted_players[i+2] = sorted_players[i+2], sorted_players[j+1]
+                                p2 = alt_p2
                                 break
-                    
-                    # Berücksichtige auch die Punktedifferenz
-                    player1_points = next((p[1] for p in current_group if p[0] == player1), 0)
-                    player2_points = next((p[1] for p in current_group if p[0] == player2), 0)
-                    points_diff = abs(int(player1_points) - int(player2_points))
-                    opponent_score += points_diff * 5
-                    
-                    # Wenn dieser Gegner besser ist als der bisherige beste, aktualisiere
-                    if opponent_score < best_opponent_score:
-                        best_opponent = player2
-                        best_opponent_score = opponent_score
                 
-                # Wenn ein Gegner gefunden wurde
-                if best_opponent:
-                    p1, p2 = leg_players[i], best_opponent
-                    match_list.append({
-                        "table": str(table_nr),
-                        "player1": p1,
-                        "player2": p2,
-                        "score1": "",
-                        "score2": "",
-                        "table_size": group_size
-                    })
-                    paired.add(p1)
-                    paired.add(p2)
-                    table_nr += 1
-                    print(f"Optimiertes Match erstellt zwischen {p1} und {p2}")
+                match_list.append({
+                    "table": str(table_nr),
+                    "player1": p1,
+                    "player2": p2,
+                    "score1": "",
+                    "score2": "",
+                    "table_size": group_size
+                })
+                table_nr += 1
+                print(f"Match: {p1} vs {p2}")
 
     # Speichere die neue Runde
     next_round_number = current_round + 1
     next_round_file = os.path.join(rounds_dir, f'round_{next_round_number}.csv')
     
     with open(next_round_file, 'w', newline='', encoding='utf-8') as f:
+        # Stelle sicher, dass die 🦵-Symbole bei den Spielernamen erhalten bleiben
         for match in match_list:
-            # Stelle sicher, dass die 🦵-Symbole erhalten bleiben
-            match['player1'] = ensure_leg_symbol(match['player1'])
-            match['player2'] = ensure_leg_symbol(match['player2'])
+            # Bereite die display_player Felder vor
+            match['display_player1'] = match['player1']
+            match['display_player2'] = match['player2']
             
-        writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'table_size'])
+            if is_player_marked(match['player1']):
+                match['display_player1'] = get_display_name(match['player1'])
+                print(f"next_round: Setze display_player1 für {match['player1']} auf {match['display_player1']}")
+            
+            if match['player2'] != "BYE" and is_player_marked(match['player2']):
+                match['display_player2'] = get_display_name(match['player2'])
+                print(f"next_round: Setze display_player2 für {match['player2']} auf {match['display_player2']}")
+            elif match['player2'] == "BYE":
+                match['display_player2'] = "BYE"
+                
+            # Debug-Ausgabe für Spielernamen in der Runde
+            print(f"Match: {match['display_player1']} vs {match['display_player2']} (Original: {match['player1']} vs {match['player2']})")
+                
+        # Verwende erweiterte Feldliste mit display_player Feldern
+        writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'table_size', 'display_player1', 'display_player2'])
         writer.writeheader()
         writer.writerows(match_list)
 
@@ -554,7 +709,7 @@ def next_round():
         if not file_exists:
             writer.writerow(["Tournament", "Timestamp", "Table", "Player 1", "Score 1", "Player 2", "Score 2"])
         
-        # Speichere nur die BYE Matches
+        # Speichere BYE Matches automatisch
         for match in match_list:
             if match["player2"] == "BYE":
                 writer.writerow([
@@ -562,9 +717,9 @@ def next_round():
                     datetime.now().isoformat(),
                     match["table"],
                     match["player1"],
-                    match["score1"],
+                    "2",  # Automatischer Sieg
                     match["player2"],
-                    match["score2"]
+                    "0"
                 ])
 
     # Leite zur show_round Route weiter
@@ -572,7 +727,11 @@ def next_round():
 
 @main.route("/start_tournament", methods=["GET"])
 def start_tournament():
+    # Vollständiges Zurücksetzen der Session beim Start eines neuen Turniers
+    session.clear()
     session["tournament_id"] = str(uuid.uuid4())
+    # Explizit die Liste der markierten Spieler zurücksetzen
+    session["leg_players_set"] = []
     return redirect(url_for("main.index"))
 
 @main.route("/continue_tournament", methods=["GET"])
@@ -605,13 +764,13 @@ def continue_tournament():
             reader = csv.DictReader(csvfile)
             rows = [row for row in reader if row["Tournament"] == tid]
 
-            if not rows:
-                return "<h2>Keine gespeicherten Resultate für dieses Turnier gefunden.</h2><p><a href='/'>Zurück</a></p>"
+        if not rows:
+            return "<h2>Keine gespeicherten Resultate für dieses Turnier gefunden.</h2><p><a href='/'>Zurück</a></p>"
 
-            # Sortiere nach Zeitstempel und finde die letzte Runde
-            rows.sort(key=lambda x: x["Timestamp"], reverse=True)
-            last_timestamp = rows[0]["Timestamp"]
-            last_round = [r for r in rows if r["Timestamp"] == last_timestamp]
+        # Sortiere nach Zeitstempel und finde die letzte Runde
+        rows.sort(key=lambda x: x["Timestamp"], reverse=True)
+        last_timestamp = rows[0]["Timestamp"]
+        last_round = [r for r in rows if r["Timestamp"] == last_timestamp]
 
     except (IOError, OSError) as e:
         return f"<h2>Fehler beim Lesen der Ergebnisse: {str(e)}</h2><p><a href='/'>Zurück</a></p>"
@@ -646,17 +805,18 @@ def continue_tournament():
     # 7. Leaderboard erstellen
     leaderboard = []
     for player, player_stats in stats.items():
+        omw = calculate_opponents_match_percentage(player, stats)
+        gw = calculate_game_win_percentage(player_stats)
         leaderboard.append((
             player,
             player_stats['points'],
-            player_stats['match_wins'],
-            player_stats['match_losses'],
-            tiebreakers[player]['gwp'],
-            tiebreakers[player]['omw']
+            f"{player_stats['total_wins']} - {player_stats['total_losses']}",  # Gesamtsumme aller Siege und Niederlagen
+            f"{omw:.2%}",
+            f"{gw:.2%}"
         ))
 
-    # 8. Leaderboard sortieren (Punkte -> OMW% -> GWP% -> Name)
-    leaderboard.sort(key=lambda x: (-x[1], -x[5], -x[4], x[0]))
+    # Sortiere nach Punkten, OMW% und GW%
+    leaderboard.sort(key=lambda x: (-int(x[1]), -float(x[3].replace('%', '')), -float(x[4].replace('%', '')), x[0]))
 
     return render_template("pair.html", 
                          pairings=group_list, 
@@ -704,9 +864,8 @@ def end_tournament():
             "final_leaderboard": final_leaderboard
         }, f)
     
-    # Entferne die Session-Daten
-    session.pop("tournament_id", None)
-    session.pop("players_text", None)
+    # Entferne alle Session-Daten
+    session.clear()
     
     return render_template(
         "tournament_end.html",
@@ -719,6 +878,9 @@ def show_round(round_number):
     tournament_id = session.get("tournament_id")
     if not tournament_id:
         return redirect(url_for("main.index"))
+    
+    print(f"\n\n=== SHOW_ROUND AUFGERUFEN: Runde {round_number} ===")
+    print(f"Tournament ID: {tournament_id}")
 
     data_dir = os.path.join("data", tournament_id)
     rounds_dir = os.path.join(data_dir, "rounds")
@@ -737,6 +899,9 @@ def show_round(round_number):
     if os.path.exists(player_groups_file):
         with open(player_groups_file, "r", encoding="utf-8") as f:
             player_groups = json.load(f)
+        print(f"Player Groups geladen: {player_groups.keys()}")
+    else:
+        print(f"WARNUNG: player_groups.json nicht gefunden in {player_groups_file}")
     
     # Erstelle eine Map von Spielern zu ihrer Gruppengröße
     player_to_table_size = {}
@@ -753,74 +918,128 @@ def show_round(round_number):
 
     # Lade die Matches für die angegebene Runde
     round_file = os.path.join(rounds_dir, f"round_{round_number}.csv")
+    print(f"Versuche, Rundendatei zu laden: {round_file}")
     
     try:
         if not os.path.exists(round_file):
+            print(f"FEHLER: Rundendatei existiert nicht: {round_file}")
             return redirect(url_for("main.index", error=f"Runde {round_number} nicht gefunden"))
         
         matches = []
         
         with open(round_file, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            next(reader)  # Überspringe Header
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames
+            print(f"CSV-Header: {fieldnames}")
+            
+            # Prüfe, ob alle benötigten Felder vorhanden sind
+            required_fields = ['table', 'player1', 'player2', 'score1', 'score2', 'table_size']
+            for field in required_fields:
+                if field not in fieldnames:
+                    print(f"WARNUNG: Wichtiges Feld '{field}' fehlt in der CSV-Datei")
             
             for row in reader:
-                if len(row) >= 5:  # Stelle sicher, dass die Zeile genügend Spalten hat
-                    table_nr = row[0]
-                    player1 = row[1]
-                    player2 = row[2]
-                    
-                    print(f"Geladenes Match: Tisch {table_nr}, Spieler1: {player1}, Spieler2: {player2}")
-                    
-                    # Überprüfe, ob die Spieler in den Dropouts sind
-                    dropout1 = False
-                    dropout2 = False
-                    
-                    if dropouts and str(round_number) in dropouts:
-                        dropout1 = player1 in dropouts[str(round_number)]
-                        dropout2 = player2 in dropouts[str(round_number)]
-                    
-                    # Stelle die Display-Namen her
-                    display_player1 = player1
-                    display_player2 = player2
-                    
-                    # Füge das 🦵-Symbol für markierte Spieler hinzu
-                    if player1 in marked_players:
-                        display_player1 = f"{player1} 🦵"
-                    if player2 in marked_players:
-                        display_player2 = f"{player2} 🦵"
-                    
-                    print(f"Display-Namen: {display_player1} vs {display_player2}")
-                    
-                    # Extrahiere Ergebnisse, falls vorhanden
-                    result1 = int(row[3]) if row[3] else 0
-                    result2 = int(row[4]) if row[4] else 0
-                    
-                    # Ermittle die Tischgröße für dieses Match
-                    table_size = "6"  # Standardwert
+                # Konvertiere die Zeilen in ein Dictionary, wenn es eine einfache Zeile ist
+                match_data = row
+                if isinstance(row, list) and len(row) >= 5:
+                    match_data = {
+                        "table": row[0],
+                        "player1": row[1],
+                        "player2": row[2],
+                        "score1": row[3] if row[3] else "0",
+                        "score2": row[4] if row[4] else "0",
+                        "table_size": row[5] if len(row) > 5 else "6"
+                    }
+                
+                # Stelle sicher, dass alle Werte als Strings vorliegen und leere Werte einen Standardwert haben
+                for key, value in match_data.items():
+                    if value is None:
+                        match_data[key] = ""
+                    else:
+                        match_data[key] = str(value)
+                
+                # Stelle sicher, dass table_size gesetzt ist und als String vorliegt
+                if 'table_size' not in match_data or not match_data['table_size']:
+                    # Versuche, die table_size aus player_to_table_size zu ermitteln
+                    player1 = match_data.get('player1', '')
+                    player2 = match_data.get('player2', '')
                     if player1 in player_to_table_size:
-                        table_size = player_to_table_size[player1]
-                    elif player2 in player_to_table_size and player2 != "BYE":
-                        table_size = player_to_table_size[player2]
-                    
-                    matches.append({
-                        "table": table_nr,
-                        "player1": player1,
-                        "player2": player2,
-                        "display_player1": display_player1,
-                        "display_player2": display_player2,
-                        "score1": result1,
-                        "score2": result2,
-                        "dropout1": "true" if dropout1 else "false",
-                        "dropout2": "true" if dropout2 else "false",
-                        "table_size": table_size
-                    })
+                        match_data['table_size'] = str(player_to_table_size[player1])
+                    elif player2 != "BYE" and player2 in player_to_table_size:
+                        match_data['table_size'] = str(player_to_table_size[player2])
+                    else:
+                        # Standardwert als Fallback
+                        match_data['table_size'] = "6"
+                    print(f"table_size für Match {match_data.get('table', '')} auf {match_data['table_size']} gesetzt")
+                
+                # Stelle sicher, dass alle erforderlichen Felder vorhanden sind
+                if 'dropout1' not in match_data:
+                    match_data['dropout1'] = 'false'
+                if 'dropout2' not in match_data:
+                    match_data['dropout2'] = 'false'
+                
+                # Überprüfe auf display_player Felder und aktualisiere wenn nötig
+                if 'display_player1' not in match_data or not match_data['display_player1']:
+                    # Wenn das Feld nicht vorhanden ist, generiere es neu
+                    match_data['display_player1'] = get_display_name(match_data['player1'])
+                if 'display_player2' not in match_data or not match_data['display_player2']:
+                    match_data['display_player2'] = get_display_name(match_data['player2'])
+                
+                # Stelle sicher, dass die 🦵-Markierung sichtbar bleibt
+                if is_player_marked(match_data['player1']):
+                    match_data['display_player1'] = get_display_name(match_data['player1'])
+                    print(f"show_round: Setze display_player1 für {match_data['player1']} auf {match_data['display_player1']}")
+                if is_player_marked(match_data['player2']) and match_data['player2'] != "BYE":
+                    match_data['display_player2'] = get_display_name(match_data['player2'])
+                    print(f"show_round: Setze display_player2 für {match_data['player2']} auf {match_data['display_player2']}")
+                elif match_data['player2'] == "BYE":
+                    match_data['display_player2'] = "BYE"
+                
+                # Extrahiere und konvertiere Scores
+                try:
+                    score1 = int(match_data['score1']) if match_data['score1'] else 0
+                    score2 = int(match_data['score2']) if match_data['score2'] else 0
+                except ValueError:
+                    print(f"WARNUNG: Ungültige Scores für Match {match_data.get('table', '')}: {match_data.get('score1', '')}-{match_data.get('score2', '')}")
+                    score1 = 0
+                    score2 = 0
+                
+                match_data['score1'] = str(score1)
+                match_data['score2'] = str(score2)
+                
+                # Überprüfe auf Drop-Outs
+                dropout1 = match_data.get('dropout1') == 'true'
+                dropout2 = match_data.get('dropout2') == 'true'
+                if dropouts and str(round_number) in dropouts:
+                    dropout1 = dropout1 or match_data['player1'] in dropouts[str(round_number)]
+                    dropout2 = dropout2 or match_data['player2'] in dropouts[str(round_number)]
+                
+                # Aktualisiere dropout-Flags
+                match_data['dropout1'] = 'true' if dropout1 else 'false'
+                match_data['dropout2'] = 'true' if dropout2 else 'false'
+                
+                # Erstelle das Match-Objekt (verwende direkt das Dictionary)
+                matches.append(match_data)
+                print(f"Match geladen: Tisch {match_data['table']}, {match_data['player1']} vs {match_data['player2']}, Größe: {match_data['table_size']}")
+        
+        print(f"Insgesamt {len(matches)} Matches geladen")
+        
+        # Gruppiere Matches nach Tischgrösse für Debugging
+        table_sizes = {}
+        for match in matches:
+            size = match['table_size']
+            if size not in table_sizes:
+                table_sizes[size] = []
+            table_sizes[size].append(match)
+        
+        for size, matches_in_size in table_sizes.items():
+            print(f"Tischgrösse {size}: {len(matches_in_size)} Matches")
         
         # Berechne den aktuellen Leaderboard
         leaderboard = calculate_leaderboard(tournament_id, round_number)
         print(f"Leaderboard Länge: {len(leaderboard)}")
         if leaderboard:
-            print(f"Erste drei Einträge: {leaderboard[:3]}")
+            print(f"Erste drei Einträge: {leaderboard[:min(3, len(leaderboard))]}")
         
         # Ermittle die Gesamtzahl der Runden
         total_rounds = 0
@@ -829,6 +1048,7 @@ def show_round(round_number):
                 round_num = int(file.split("_")[1].split(".")[0])
                 total_rounds = max(total_rounds, round_num)
         
+        print(f"Template wird gerendert mit: current_round={round_number}, {len(matches)} Matches, {len(leaderboard)} Spieler im Leaderboard")
         return render_template(
             "pair.html",
             current_round=round_number,
@@ -836,7 +1056,8 @@ def show_round(round_number):
             leaderboard=leaderboard,
             marked=session.get("leg_players_set", []),
             player_groups=player_groups,
-            total_rounds=total_rounds
+            total_rounds=total_rounds,
+            is_player_marked=is_player_marked
         )
     
     except Exception as e:
@@ -845,7 +1066,7 @@ def show_round(round_number):
         print(traceback.format_exc())
         return redirect(url_for("main.index", error=f"Fehler beim Laden der Runde {round_number}: {str(e)}"))
 
-def calculate_opponents_match_win_percentage(player, stats):
+def calculate_opponents_match_percentage(player, stats):
     """Berechnet den OMW% (Opponents Match Win Percentage) für einen Spieler."""
     if player not in stats:
         return 0.0
@@ -866,6 +1087,7 @@ def calculate_opponents_match_win_percentage(player, stats):
     total_win_percentage = 0.0
     for opponent in opponents:
         opponent_stats = stats[opponent]
+        # Verwende die in calculate_leaderboard verwendeten Schlüsselnamen
         total_matches = opponent_stats['wins'] + opponent_stats['losses']
         if total_matches > 0:
             win_percentage = opponent_stats['wins'] / total_matches
@@ -877,10 +1099,41 @@ def calculate_opponents_match_win_percentage(player, stats):
 
 def calculate_game_win_percentage(player_stats):
     """Berechnet den GW% (Game Win Percentage) für einen Spieler."""
-    total_matches = player_stats['wins'] + player_stats['losses']
-    if total_matches == 0:
+    total_games = player_stats['wins'] + player_stats['losses']
+    if total_games == 0:
         return 0.0
-    return player_stats['wins'] / total_matches
+    return player_stats['wins'] / total_games
+
+def calculate_opponents_game_win_percentage(player, stats):
+    """Berechnet den OGW% (Opponents Game Win Percentage) für einen Spieler."""
+    if player not in stats:
+        return 0.0
+    
+    # Sammle alle Gegner des Spielers
+    opponents = []
+    for opponent, opponent_stats in stats.items():
+        if opponent == player:  # Überspringe den Spieler selbst
+            continue
+        # Prüfe, ob dieser Spieler ein Gegner war
+        if opponent in stats.get(player, {}).get('opponents', []):
+            opponents.append(opponent)
+    
+    if not opponents:  # Wenn keine Gegner gefunden wurden
+        return 0.0
+    
+    # Berechne den durchschnittlichen Game-Win-Prozentsatz der Gegner
+    total_game_win_percentage = 0.0
+    for opponent in opponents:
+        opponent_stats = stats[opponent]
+        # Berechne den GW% für jeden Gegner
+        total_games = opponent_stats['total_wins'] + opponent_stats['total_losses']
+        if total_games > 0:
+            game_win_percentage = opponent_stats['total_wins'] / total_games
+        else:
+            game_win_percentage = 0.0
+        total_game_win_percentage += game_win_percentage
+    
+    return total_game_win_percentage / len(opponents) if opponents else 0.0
 
 def calculate_leaderboard(tournament_id, up_to_round):
     """Berechnet den Leaderboard basierend auf den Ergebnissen bis zur angegebenen Runde."""
@@ -895,51 +1148,51 @@ def calculate_leaderboard(tournament_id, up_to_round):
         round_file = os.path.join(data_dir, "rounds", f"round_{round_num}.csv")
         if os.path.exists(round_file):
             print(f"Verarbeite Runde {round_num}")
-            with open(round_file, "r") as f:
-                reader = csv.DictReader(f)
-                for match in reader:
-                    player1 = match["player1"]
-                    player2 = match["player2"]
-                    
-                    # Wenn es ein BYE Match ist, bekommt der aktive Spieler 2 Siege
-                    if player2 == "BYE":
-                        score1 = 2
-                        score2 = 0
-                    # Nur wenn beide Scores eingetragen sind
-                    elif match["score1"] and match["score2"]:
-                        score1 = int(match["score1"])
-                        score2 = int(match["score2"])
-                    else:
-                        continue  # Überspringe Matches ohne Ergebnis
+            try:
+                with open(round_file, "r") as f:
+                    reader = csv.DictReader(f)
+                    for match in reader:
+                        player1 = match["player1"]
+                        player2 = match["player2"]
                         
-                    # Debug-Ausgabe
-                    print(f"  Match: {player1} vs {player2}, Ergebnis: {score1}-{score2}")
-                    
-                    # Aktualisiere die Gegner-Listen
-                    stats[player1]['opponents'].append(player2)
-                    stats[player2]['opponents'].append(player1)
-                    
-                    # Aktualisiere die Statistiken für beide Spieler
-                    if score1 > score2:
-                        stats[player1]['points'] += 3
-                        stats[player1]['wins'] += 1
-                        stats[player2]['losses'] += 1
-                    elif score2 > score1:
-                        stats[player2]['points'] += 3
-                        stats[player2]['wins'] += 1
-                        stats[player1]['losses'] += 1
-                    else:  # Unentschieden
-                        stats[player1]['points'] += 1
-                        stats[player2]['points'] += 1
-                    
-                    # Aktualisiere die Gesamtsiege und -niederlagen
-                    stats[player1]['total_wins'] += score1
-                    stats[player1]['total_losses'] += score2
-                    stats[player2]['total_wins'] += score2
-                    stats[player2]['total_losses'] += score1
-                    
-                    stats[player1]['matches'] += 1
-                    stats[player2]['matches'] += 1
+                        # Wenn es ein BYE Match ist, bekommt der aktive Spieler 2 Siege
+                        if player2 == "BYE":
+                            score1 = 2
+                            score2 = 0
+                        # Nur wenn beide Scores eingetragen sind
+                        elif match["score1"] and match["score2"]:
+                            score1 = int(match["score1"])
+                            score2 = int(match["score2"])
+                        else:
+                            continue  # Überspringe Matches ohne Ergebnis
+                            
+                        # Debug-Ausgabe
+                        print(f"  Match: {player1} vs {player2}, Ergebnis: {score1}-{score2}")
+                        
+                        # Aktualisiere die Gegner-Listen
+                        stats[player1]['opponents'].append(player2)
+                        stats[player2]['opponents'].append(player1)
+                        
+                        # Aktualisiere die Statistiken für beide Spieler
+                        if score1 > score2:
+                            stats[player1]['points'] += 3
+                            stats[player1]['wins'] += 1
+                            stats[player2]['losses'] += 1
+                        elif score2 > score1:
+                            stats[player2]['points'] += 3
+                            stats[player2]['wins'] += 1
+                            stats[player1]['losses'] += 1
+                        
+                        # Aktualisiere die Gesamtsiege und -niederlagen
+                        stats[player1]['total_wins'] += score1
+                        stats[player1]['total_losses'] += score2
+                        stats[player2]['total_wins'] += score2
+                        stats[player2]['total_losses'] += score1
+                        
+                        stats[player1]['matches'] += 1
+                        stats[player2]['matches'] += 1
+            except (IOError, OSError) as e:
+                print(f"Fehler beim Lesen der Runde {round_num}: {e}")
         else:
             print(f"Runde {round_num} nicht gefunden")
 
@@ -950,256 +1203,24 @@ def calculate_leaderboard(tournament_id, up_to_round):
     # Erstelle den Leaderboard
     leaderboard = []
     for player, player_stats in stats.items():
-        omw = calculate_opponents_match_win_percentage(player, stats)
+        omw = calculate_opponents_match_percentage(player, stats)
         gw = calculate_game_win_percentage(player_stats)
+        ogw = calculate_opponents_game_win_percentage(player, stats)
         leaderboard.append((
             player,
             player_stats['points'],
             f"{player_stats['total_wins']} - {player_stats['total_losses']}",  # Gesamtsumme aller Siege und Niederlagen
             f"{omw:.2%}",
-            f"{gw:.2%}"
+            f"{gw:.2%}",
+            f"{ogw:.2%}"
         ))
 
-    # Sortiere nach Punkten, OMW% und GW%
-    leaderboard.sort(key=lambda x: (-int(x[1]), -float(x[3].rstrip('%')), -float(x[4].rstrip('%')), x[0]))
+    # Sortiere nach Punkten, OMW%, GW% und OGW% (gemäß der vorgegebenen Reihenfolge der Tiebreaker)
+    leaderboard.sort(key=lambda x: (
+        -int(x[1]),  # Punkte (absteigend)
+        -float(x[3].replace('%', '')),  # OMW% (absteigend)
+        -float(x[4].replace('%', '')),  # GW% (absteigend)
+        -float(x[5].replace('%', '')),  # OGW% (absteigend)
+        x[0]  # Bei Gleichstand alphabetisch nach Namen (aufsteigend)
+    ))
     return leaderboard
-
-@main.route('/save_result', methods=['POST'])
-def save_result():
-    try:
-        if 'tournament_id' not in session:
-            return redirect(url_for('main.index', error="Kein aktives Turnier gefunden"))
-        
-        tournament_id = session['tournament_id']
-        data_dir = os.path.join('data', tournament_id)
-        
-        # Stelle sicher, dass das rounds-Verzeichnis existiert
-        rounds_dir = os.path.join(data_dir, 'rounds')
-        os.makedirs(rounds_dir, exist_ok=True)
-        
-        # Hole die Formulardaten
-        table = request.form.get('table')
-        player1 = request.form.get('player1')
-        player2 = request.form.get('player2')
-        
-        # Stellen sicher, dass die 🦵-Symbole erhalten bleiben
-        player1 = ensure_leg_symbol(player1)
-        player2 = ensure_leg_symbol(player2)
-        
-        # Debug-Ausgaben für die Spielernamen
-        debug_emoji(player1, "FORM INPUT player1")
-        debug_emoji(player2, "FORM INPUT player2")
-        
-        table_size = request.form.get('table_size')
-        score1 = request.form.get('score1', '0')
-        score2 = request.form.get('score2', '0')
-        current_round = request.form.get('current_round', '1')
-        dropout1 = request.form.get('dropout1', 'false')
-        dropout2 = request.form.get('dropout2', 'false')
-        
-        # Konvertiere die Scores zu Integers
-        try:
-            score1 = int(score1)
-            score2 = int(score2)
-        except ValueError:
-            return redirect(url_for('main.show_round', round_number=current_round, error="Ungültige Punktzahl"))
-        
-        # Lade die aktuelle Runde
-        round_file = os.path.join(rounds_dir, f'round_{current_round}.csv')
-        if not os.path.exists(round_file):
-            return redirect(url_for('main.show_round', round_number=current_round, error="Runde nicht gefunden"))
-        
-        # Lese die aktuelle Runde mit expliziter UTF-8-Kodierung
-        matches = []
-        with open(round_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                # Stelle sicher, dass die Dropout-Felder existieren
-                if 'dropout1' not in row:
-                    row['dropout1'] = 'false'
-                if 'dropout2' not in row:
-                    row['dropout2'] = 'false'
-                matches.append(row)
-        
-        # Aktualisiere das Ergebnis für den entsprechenden Tisch
-        for match in matches:
-            debug_emoji(match['player1'], "BEFORE UPDATE player1")
-            debug_emoji(match['player2'], "BEFORE UPDATE player2")
-            
-            # Überprüfe, ob das Match dem gesuchten entspricht
-            match_found = (match['table'] == table and 
-                          match['player1'] == player1 and 
-                          match['player2'] == player2)
-            
-            print(f"Match gefunden: {match_found}, Tabellen-ID: {match['table']} vs {table}")
-            
-            if match_found:
-                # Wenn ein Spieler als Drop-Out markiert ist, setze automatisch einen 2-0 Sieg für den Gegner
-                if dropout1 == 'true':
-                    match['score1'] = '0'
-                    match['score2'] = '2'
-                elif dropout2 == 'true':
-                    match['score1'] = '2'
-                    match['score2'] = '0'
-                else:
-                    match['score1'] = str(score1)
-                    match['score2'] = str(score2)
-                
-                match['dropout1'] = dropout1
-                match['dropout2'] = dropout2
-                
-                debug_emoji(match['player1'], "AFTER UPDATE player1")
-                debug_emoji(match['player2'], "AFTER UPDATE player2")
-                break
-        
-        # Schreibe die aktualisierte Runde zurück mit expliziter UTF-8-Kodierung
-        if matches:  # Prüfe, ob die Liste nicht leer ist
-            with open(round_file, 'w', newline='', encoding='utf-8') as f:
-                for match in matches:
-                    debug_emoji(match['player1'], "BEFORE SAVE player1")
-                    debug_emoji(match['player2'], "BEFORE SAVE player2")
-                
-                writer = csv.DictWriter(f, fieldnames=matches[0].keys())
-                writer.writeheader()
-                writer.writerows(matches)
-                
-                print("CSV-Datei erfolgreich geschrieben.")
-                
-            # Überprüfe nach dem Speichern
-            with open(round_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-                print(f"CSV-Datei nach dem Speichern enthält 🦵: {'🦵' in content}")
-        
-        # Speichere die Drop-Out-Informationen in einer separaten Datei
-        dropouts_file = os.path.join(data_dir, 'dropouts.json')
-        dropouts = {}
-        
-        # Lade bestehende Drop-Outs, falls vorhanden
-        if os.path.exists(dropouts_file):
-            with open(dropouts_file, 'r', encoding='utf-8') as f:
-                dropouts = json.load(f)
-        
-        # Aktualisiere die Drop-Out-Informationen
-        if dropout1 == 'true':
-            dropouts[player1] = True
-        else:
-            # Nur auf False setzen, wenn der Spieler bereits in der Datei existiert
-            if player1 in dropouts:
-                dropouts[player1] = False
-            
-        if dropout2 == 'true':
-            dropouts[player2] = True
-        else:
-            # Nur auf False setzen, wenn der Spieler bereits in der Datei existiert
-            if player2 in dropouts:
-                dropouts[player2] = False
-        
-        # Speichere die aktualisierten Drop-Out-Informationen
-        with open(dropouts_file, 'w', encoding='utf-8') as f:
-            json.dump(dropouts, f)
-        
-        # Debug: Prüfe vor dem neuen Laden die Spielernamen
-        print(f"Nach dem Speichern, vor dem Laden: Spieler 1 = {player1}, Spieler 2 = {player2}")
-        
-        # Berechne das Leaderboard neu - berücksichtige alle Runden bis zur aktuellen Runde
-        leaderboard = calculate_leaderboard(tournament_id, int(current_round))
-        
-        # Lade die Spielergruppen
-        player_groups_file = os.path.join(data_dir, 'player_groups.json')
-        with open(player_groups_file, 'r', encoding='utf-8') as f:
-            player_groups = json.load(f)
-        
-        # Berechne die Gesamtanzahl der Runden
-        total_rounds = len([f for f in os.listdir(rounds_dir) if f.startswith('round_') and f.endswith('.csv')])
-        
-        # Zurück zur aktuellen Runde mit allen notwendigen Daten
-        return render_template('pair.html',
-                             matches=matches,
-                             player_groups=player_groups,
-                             leaderboard=leaderboard,
-                             current_round=int(current_round),
-                             total_rounds=total_rounds)
-    except Exception as e:
-        print(f"Fehler in save_result: {str(e)}")
-        return redirect(url_for('main.index', error=str(e)))
-
-def ensure_leg_symbol(player_name):
-    """Stellt sicher, dass das 🦵-Symbol im Spielernamen erhalten bleibt.
-    Diese Funktion hilft, Probleme mit dem Unicode-Symbol zu beheben."""
-    # Prüfe, ob der Name in der gespeicherten Spielerliste existiert und das Symbol enthält
-    if not player_name or not isinstance(player_name, str):
-        return player_name
-    
-    # Falls der Spielername kein 🦵-Symbol mehr hat, aber in der gespeicherten Liste mit Symbol ist
-    leg_players = session.get("leg_players", {})
-    
-    # Wenn der Spieler in der Liste der Spieler mit 🦵-Symbol ist, 
-    # aber das Symbol im aktuellen Namen fehlt
-    if player_name in leg_players and "🦵" not in player_name:
-        player_name_with_leg = leg_players[player_name]
-        debug_emoji(player_name, "RESTORED - Original")
-        debug_emoji(player_name_with_leg, "RESTORED - With Leg")
-        return player_name_with_leg
-    
-    # Wenn der Name das Symbol enthält, speichere ihn in der Session
-    if "🦵" in player_name:
-        # Speichere den Namen ohne Symbol als Schlüssel
-        name_without_leg = player_name.replace("🦵", "").strip()
-        if name_without_leg:
-            leg_players[name_without_leg] = player_name
-            session["leg_players"] = leg_players
-            debug_emoji(player_name, "SAVED to leg_players")
-    
-    return player_name
-
-# Funktionen zum Verwalten von Spielern mit 🦵-Symbol
-def mark_player(player_name):
-    """Markiert einen Spieler mit einem speziellen Flag in der Session."""
-    if not player_name:
-        return player_name
-    
-    # Holen der markierten Spieler als Liste aus der Session
-    marked_players = session.get("leg_players_set", [])
-    
-    # Wenn der Name bisher das Symbol enthält, entferne es und speichere die Info
-    if "🦵" in player_name:
-        clean_name = player_name.replace("🦵", "").strip()
-        if clean_name not in marked_players:
-            marked_players.append(clean_name)  # Zur Liste hinzufügen
-            session["leg_players_set"] = marked_players  # Liste speichern
-            print(f"Spieler markiert in Session: {clean_name}")
-        return clean_name
-    
-    # Wenn der Name bereits markiert ist, markiere ihn in der Session
-    if player_name in marked_players:
-        print(f"Spieler ist bereits markiert: {player_name}")
-    
-    return player_name
-
-def is_player_marked(player_name):
-    """Prüft, ob ein Spieler markiert ist."""
-    if not player_name:
-        return False
-    
-    # Direkte Überprüfung auf das Symbol im Namen
-    if "🦵" in player_name:
-        return True
-    
-    # Überprüfung in der Session-Variable (als Liste)
-    marked_players = session.get("leg_players_set", [])
-    
-    return player_name in marked_players
-
-def get_display_name(player_name):
-    """Gibt den Anzeigenamen mit Symbol zurück, wenn der Spieler markiert ist."""
-    if not player_name or player_name == "BYE":
-        return player_name
-    
-    if is_player_marked(player_name):
-        # Das Symbol nur hinzufügen, wenn es nicht bereits vorhanden ist
-        if "🦵" not in player_name:
-            return f"{player_name} 🦵"
-    
-    return player_name
-
-

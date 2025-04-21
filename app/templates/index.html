@@ -9,8 +9,8 @@
             --danger-color: #e74c3c;
             --dark-color: #2c3e50;
             --light-color: #f5f7fa;
-            --gradient-start: #4a90e2;
-            --gradient-end: #2ecc71;
+            --gradient-start: #2c3e50;
+            --gradient-end: #34495e;
         }
 
         body {
@@ -91,10 +91,10 @@
         }
 
         .add-player-btn {
-            background: linear-gradient(135deg, var(--primary-color) 0%, #357abd 100%);
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 6px;
             padding: 12px 24px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -102,6 +102,7 @@
         }
 
         .add-player-btn:hover {
+            background: linear-gradient(135deg, var(--gradient-end) 0%, var(--dark-color) 100%);
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
@@ -196,7 +197,7 @@
         }
 
         .size-label::before {
-            content: "👥";
+            content: "🎮";
         }
 
         .size-checkbox:checked + .size-label {
@@ -266,10 +267,10 @@
         }
 
         .test-players-btn {
-            background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 6px;
             padding: 10px 20px;
             cursor: pointer;
             font-size: 0.9em;
@@ -279,8 +280,9 @@
         }
 
         .test-players-btn:hover {
+            background: linear-gradient(135deg, var(--gradient-end) 0%, var(--dark-color) 100%);
             transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(155, 89, 182, 0.2);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
         .app-header {
@@ -310,7 +312,7 @@
             <h1 class="app-title">Grotto MTG League Manager</h1>
         </div>
 
-        <button type="button" class="test-players-btn" onclick="addTestPlayers()">🎮 Test-Spieler hinzufügen</button>
+        <button type="button" class="test-players-btn" onclick="addTestPlayers()">🏆 Grotto-Gang hinzufügen</button>
 
         {% if error %}
         <div class="error-message">{{ error }}</div>
@@ -407,8 +409,8 @@
 
         function addTestPlayers() {
             const testPlayers = [
-                "Max", "Anna", "Tim", "Lisa", "Felix", "Sarah",
-                "Tom", "Laura", "Paul", "Emma", "David", "Julia"
+                "Serge", "Remo", "Barney", "Tim", "Enrique", "Sandy",
+                "Fabian", "Chrigi", "Patrick", "Valentin", "Dimi", "Rico"
             ];
             
             const table = document.getElementById('playersTable').getElementsByTagName('tbody')[0];
@@ -438,9 +440,9 @@
         document.getElementById('playerName').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                addPlayer();
-            }
-        });
+                    addPlayer();
+                }
+            });
     </script>
 </body>
 </html>
