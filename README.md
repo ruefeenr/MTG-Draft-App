@@ -1,16 +1,16 @@
 # MTG League Manager
 
-Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnieren mit flexiblen Tischgrößen, automatischer Spielerpaarung und Turnierstatistiken.
+Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnieren mit flexiblen Tischgrössen, automatischer Spielerpaarung und Turnierstatistiken.
 
 ## Features
 
-- **Flexible Turnierverwaltung**: Unterstützung für verschiedene Tischgrößen (6, 8, 10, 12 Spieler)
+- **Flexible Turnierverwaltung**: Unterstützung für verschiedene Tischgrössen (6, 8, 10, 12 Spieler)
 - **Automatische Spielerpaarungen**: Intelligente Algorithmen für faire Paarungen
 - **Spieler-Tracking**: Verfolge Spieler über mehrere Runden
 - **Umfassende Statistiken**: Match-Gewinne, Game-Punkte, Tiebreaker und mehr
 - **Responsive Design**: Funktioniert auf Desktop und mobilen Geräten
 - **Dropout-Behandlung**: Markiere Spieler als Dropouts mit 🦵-Symbol
-- **Turnierleaderboard**: Übersichtliche Darstellung mit farbcodierten Tischgrößen
+- **Turnierleaderboard**: Übersichtliche Darstellung mit farbcodierten Tischgrössen
 
 ## Installation
 
@@ -65,7 +65,7 @@ Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnier
 ### Turnier erstellen
 
 1. Gib Spielernamen ein (einen pro Zeile)
-2. Wähle unterstützte Tischgrößen (6, 8, 10, 12)
+2. Wähle unterstützte Tischgrössen (6, 8, 10, 12)
 3. Starte das Turnier mit "Turnier starten"
 
 ### Ergebnisse eintragen
@@ -76,7 +76,7 @@ Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnier
 
 ### Turnier beenden
 
-Nach Abschluss des Turniers kann ein Endstand mit Leaderboards für alle Tischgrößen angezeigt werden.
+Nach Abschluss des Turniers kann ein Endstand mit Leaderboards für alle Tischgrössen angezeigt werden.
 
 ## Technologie-Stack
 
@@ -115,7 +115,6 @@ MTG-Draft-App/
 ## Beitragende
 
 - @ruefeenr - Hauptentwickler
-- @Gaudentz - Beiträge
 
 ## Lizenz
 
