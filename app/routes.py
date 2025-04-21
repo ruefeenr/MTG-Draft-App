@@ -353,7 +353,7 @@ def get_player_opponents(tournament_id, current_round):
     opponents = defaultdict(list)
     
     # Gehe durch alle bisherigen Runden
-    for round_num in range(1, current_round):
+    for round_num in range(1, current_round + 1):
         round_file = os.path.join(data_dir, "rounds", f"round_{round_num}.csv")
         if os.path.exists(round_file):
             with open(round_file, "r") as f:
@@ -361,8 +361,9 @@ def get_player_opponents(tournament_id, current_round):
                 for match in reader:
                     player1 = match["player1"]
                     player2 = match["player2"]
-                    opponents[player1].append(player2)
-                    opponents[player2].append(player1)
+                    # Speichere auch die Runde, in der sie gegeneinander gespielt haben
+                    opponents[player1].append((player2, round_num))
+                    opponents[player2].append((player1, round_num))
     
     return opponents
 
@@ -419,31 +420,67 @@ def next_round():
         
         # Erstelle Paarungen für diese Gruppe
         paired = set()
+        
+        # Verbesserte Paarungslogik
         for i in range(len(sorted_players)):
             if sorted_players[i] in paired:
                 continue
                 
             # Suche nach passendem Gegner
             opponent_found = False
+            best_opponent = None
+            best_opponent_score = float('inf')  # Niedrigerer Score ist besser
+            
             for j in range(i + 1, len(sorted_players)):
                 if sorted_players[j] in paired:
                     continue
-                if sorted_players[j] not in opponents.get(sorted_players[i], []):
-                    # Paarung gefunden
-                    p1, p2 = sorted_players[i], sorted_players[j]
-                    match_list.append({
-                        "table": str(table_nr),
-                        "player1": p1,
-                        "player2": p2,
-                        "score1": "",  # Leerer String statt '0'
-                        "score2": "",  # Leerer String statt '0'
-                        "table_size": group_size
-                    })
-                    paired.add(p1)
-                    paired.add(p2)
-                    table_nr += 1
-                    opponent_found = True
-                    break
+                
+                # Berechne einen Score für diesen potenziellen Gegner
+                opponent_score = 0
+                
+                # Prüfe, ob die Spieler bereits gegeneinander gespielt haben
+                player1 = sorted_players[i]
+                player2 = sorted_players[j]
+                
+                # Prüfe die Gegner-Historie
+                player1_opponents = [opp[0] for opp in opponents.get(player1, [])]
+                player2_opponents = [opp[0] for opp in opponents.get(player2, [])]
+                
+                # Wenn sie bereits gegeneinander gespielt haben, erhöhe den Score
+                if player2 in player1_opponents:
+                    # Finde die Runde, in der sie gegeneinander gespielt haben
+                    for opp, round_num in opponents.get(player1, []):
+                        if opp == player2:
+                            # Je näher die Runde, desto höher der Score (schlechter)
+                            opponent_score += (current_round - round_num + 1) * 10
+                            break
+                
+                # Berücksichtige auch die Punktedifferenz (Spieler mit ähnlichen Punkten bevorzugen)
+                player1_points = next((p[1] for p in current_group if p[0] == player1), 0)
+                player2_points = next((p[1] for p in current_group if p[0] == player2), 0)
+                points_diff = abs(int(player1_points) - int(player2_points))
+                opponent_score += points_diff * 5
+                
+                # Wenn dieser Gegner besser ist als der bisherige beste, aktualisiere
+                if opponent_score < best_opponent_score:
+                    best_opponent = player2
+                    best_opponent_score = opponent_score
+            
+            # Wenn ein Gegner gefunden wurde
+            if best_opponent:
+                p1, p2 = sorted_players[i], best_opponent
+                match_list.append({
+                    "table": str(table_nr),
+                    "player1": p1,
+                    "player2": p2,
+                    "score1": "",  # Leerer String statt '0'
+                    "score2": "",  # Leerer String statt '0'
+                    "table_size": group_size
+                })
+                paired.add(p1)
+                paired.add(p2)
+                table_nr += 1
+                opponent_found = True
             
             # Wenn kein Gegner gefunden wurde und der Spieler noch nicht gepaart ist
             if not opponent_found and sorted_players[i] not in paired:
