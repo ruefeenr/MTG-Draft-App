@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Turnier Endstand</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #2ecc71;
+            --danger-color: #e74c3c;
+            --dark-color: #2c3e50;
+            --light-color: #f5f7fa;
+            --gradient-start: #4a90e2;
+            --gradient-end: #2ecc71;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #f6f8fc 0%, #e9f0f7 100%);
+            color: var(--dark-color);
+            min-height: 100vh;
+        }
+
+        .tournament-header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        h1 {
+            color: var(--dark-color);
+            margin-bottom: 10px;
+            font-size: 2.5em;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+
+        .tournament-info {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .table-group-header {
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+            color: white;
+            padding: 15px;
+            margin: 30px 0 20px 0;
+            border-radius: 12px;
+            font-size: 1.5em;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .leaderboard {
+            margin-bottom: 30px;
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            font-size: 1.1em;
+        }
+
+        .leaderboard th {
+            background: linear-gradient(135deg, var(--dark-color) 0%, #34495e 100%);
+            color: white;
+            padding: 15px;
+            font-weight: 600;
+            font-size: 1.2em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .leaderboard tr:nth-child(even) {
+            background-color: var(--light-color);
+        }
+
+        .leaderboard td {
+            padding: 15px;
+            border: none;
+            border-bottom: 1px solid rgba(74, 144, 226, 0.1);
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        .leaderboard tr:hover {
+            background-color: #f0f4f8;
+        }
+
+        .medal {
+            font-size: 1.5em;
+            margin-right: 10px;
+        }
+
+        .new-tournament-btn {
+            display: block;
+            width: fit-content;
+            margin: 40px auto;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, var(--primary-color) 0%, #357abd 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .new-tournament-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .trophy-container {
+            text-align: center;
+            margin: 20px 0;
+            font-size: 3em;
+        }
+    </style>
+</head>
+<body>
+    <div class="tournament-header">
+        <h1>🏆 Turnier Beendet 🏆</h1>
+        <div class="tournament-info">
+            <p>Beendet am: {{ tournament_data.end_date }}</p>
+            <p>Gespielte Runden: {{ tournament_data.total_rounds }}</p>
+        </div>
+    </div>
+
+    {% for table_size in ["6", "8", "10", "12"] %}
+        {% if tournament_data.player_groups and table_size in tournament_data.player_groups %}
+            <div class="table-group-section">
+                <div class="table-group-header">
+                    🎲 {{ table_size }}-Spieler Tisch
+                </div>
+
+                <table class="leaderboard">
+                    <thead>
+                        <tr>
+                            <th>Platz</th>
+                            <th>Name</th>
+                            <th>Punkte</th>
+                            <th>Ergebnisse</th>
+                            <th>OMW</th>
+                            <th>GW</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set rank = namespace(value=1) %}
+                        {% for player in leaderboard %}
+                            {% if player[0] in tournament_data.player_groups[table_size] %}
+                                <tr>
+                                    <td>
+                                        {% if rank.value == 1 %}
+                                            <span class="medal">🥇</span>
+                                        {% elif rank.value == 2 %}
+                                            <span class="medal">🥈</span>
+                                        {% elif rank.value == 3 %}
+                                            <span class="medal">🥉</span>
+                                        {% else %}
+                                            {{ rank.value }}
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ player[0] }}</td>
+                                    <td>{{ player[1] }}</td>
+                                    <td>{{ player[2] }}</td>
+                                    <td>{{ player[3] }}</td>
+                                    <td>{{ player[4] }}</td>
+                                </tr>
+                                {% set rank.value = rank.value + 1 %}
+                            {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    {% endfor %}
+
+    <a href="{{ url_for('main.index') }}" class="new-tournament-btn">Neues Turnier starten</a>
+</body>
+</html> 

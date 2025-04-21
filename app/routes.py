@@ -8,12 +8,50 @@ import csv
 from datetime import datetime
 from collections import defaultdict
 import json
+import base64
 
 main = Blueprint('main', __name__)
 
-# Konfiguration für sichere Sessions
-SECRET_KEY = os.environ.get('SECRET_KEY') or os.urandom(24)
-main.secret_key = SECRET_KEY
+def generate_secret_key():
+    """Generiert einen sicheren Secret Key"""
+    return base64.b64encode(os.urandom(32)).decode('utf-8')
+
+def get_secret_key():
+    """
+    Holt den Secret Key aus der Konfigurationsdatei oder erstellt einen neuen.
+    Der Key wird in einer Datei gespeichert, damit er über Neustarts hinweg bestehen bleibt.
+    """
+    config_dir = "config"
+    config_file = os.path.join(config_dir, "secret_key.txt")
+    
+    # Prüfe ob eine Umgebungsvariable gesetzt ist
+    if os.environ.get('FLASK_SECRET_KEY'):
+        return os.environ.get('FLASK_SECRET_KEY')
+    
+    # Erstelle das Konfig-Verzeichnis, falls es nicht existiert
+    if not os.path.exists(config_dir):
+        os.makedirs(config_dir)
+    
+    # Versuche den Key aus der Datei zu lesen
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, 'r') as f:
+                return f.read().strip()
+        except:
+            pass  # Falls das Lesen fehlschlägt, generieren wir einen neuen Key
+    
+    # Generiere einen neuen Key und speichere ihn
+    secret_key = generate_secret_key()
+    try:
+        with open(config_file, 'w') as f:
+            f.write(secret_key)
+        return secret_key
+    except:
+        # Fallback für den Fall, dass wir nicht in die Datei schreiben können
+        return generate_secret_key()
+
+# Setze den Secret Key
+main.secret_key = get_secret_key()
 
 def find_all_valid_groupings(player_count, allowed_sizes):
     """
@@ -520,9 +558,54 @@ def continue_tournament():
 
 @main.route("/end_tournament", methods=["POST"])
 def end_tournament():
+    tournament_id = session.get("tournament_id")
+    if not tournament_id:
+        return redirect(url_for("main.index"))
+    
+    # Berechne den finalen Leaderboard
+    data_dir = os.path.join("data", tournament_id)
+    rounds_dir = os.path.join(data_dir, "rounds")
+    if os.path.exists(rounds_dir):
+        total_rounds = len([f for f in os.listdir(rounds_dir) if f.startswith("round_") and f.endswith(".csv")])
+        final_leaderboard = calculate_leaderboard(tournament_id, total_rounds)
+    else:
+        final_leaderboard = []
+    
+    # Lade die Spielergruppen
+    player_groups = {}
+    player_groups_file = os.path.join(data_dir, "player_groups.json")
+    if os.path.exists(player_groups_file):
+        with open(player_groups_file, "r") as f:
+            player_groups = json.load(f)
+    
+    # Rendere die Endstand-Seite
+    tournament_data = {
+        "id": tournament_id,
+        "end_date": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "total_rounds": total_rounds,
+        "player_groups": player_groups
+    }
+    
+    # Speichere die Turnierdaten für spätere Referenz
+    tournament_results_dir = "tournament_results"
+    os.makedirs(tournament_results_dir, exist_ok=True)
+    
+    results_file = os.path.join(tournament_results_dir, f"{tournament_id}_results.json")
+    with open(results_file, "w") as f:
+        json.dump({
+            "tournament_data": tournament_data,
+            "final_leaderboard": final_leaderboard
+        }, f)
+    
+    # Entferne die Session-Daten
     session.pop("tournament_id", None)
     session.pop("players_text", None)
-    return redirect("/")
+    
+    return render_template(
+        "tournament_end.html",
+        tournament_data=tournament_data,
+        leaderboard=final_leaderboard
+    )
 
 @main.route('/show_round/<int:round_number>')
 def show_round(round_number):
@@ -751,52 +834,19 @@ def save_result():
         # Lade die aktuelle Runde
         round_file = os.path.join(rounds_dir, f'round_{current_round}.csv')
         if not os.path.exists(round_file):
-            # Wenn die Runde nicht existiert, erstelle sie mit den Spielern aus player_groups.json
-            player_groups_file = os.path.join(data_dir, 'player_groups.json')
-            if not os.path.exists(player_groups_file):
-                return redirect(url_for('main.index', error="Spielergruppen nicht gefunden"))
-            
-            with open(player_groups_file, 'r') as f:
-                player_groups = json.load(f)
-            
-            # Erstelle die erste Runde mit den Spielern
-            matches = []
-            table_nr = 1
-            for table_size, players in player_groups.items():
-                # Mische die Spieler
-                random.shuffle(players)
-                # Erstelle Paarungen
-                for i in range(0, len(players), 2):
-                    if i + 1 < len(players):
-                        matches.append({
-                            'table': str(table_nr),
-                            'player1': players[i],
-                            'player2': players[i + 1],
-                            'score1': '',  # Leerer String statt '0'
-                            'score2': '',  # Leerer String statt '0'
-                            'table_size': table_size,
-                            'dropout1': 'false',
-                            'dropout2': 'false'
-                        })
-                        table_nr += 1
-            
-            # Speichere die erste Runde
-            with open(round_file, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'table_size', 'dropout1', 'dropout2'])
-                writer.writeheader()
-                writer.writerows(matches)
-        else:
-            # Lese die aktuelle Runde
-            matches = []
-            with open(round_file, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    # Stelle sicher, dass die Dropout-Felder existieren
-                    if 'dropout1' not in row:
-                        row['dropout1'] = 'false'
-                    if 'dropout2' not in row:
-                        row['dropout2'] = 'false'
-                    matches.append(row)
+            return redirect(url_for('main.show_round', round_number=current_round, error="Runde nicht gefunden"))
+        
+        # Lese die aktuelle Runde
+        matches = []
+        with open(round_file, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Stelle sicher, dass die Dropout-Felder existieren
+                if 'dropout1' not in row:
+                    row['dropout1'] = 'false'
+                if 'dropout2' not in row:
+                    row['dropout2'] = 'false'
+                matches.append(row)
         
         # Aktualisiere das Ergebnis für den entsprechenden Tisch
         for match in matches:

@@ -26,9 +26,25 @@
         h1 {
             color: var(--dark-color);
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 5px;
             font-size: 2.5em;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+
+        .round-indicator {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .round-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--primary-color) 0%, #357abd 100%);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 1.2em;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
         .score-buttons {
@@ -74,11 +90,17 @@
 
         .match-card {
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border-radius: 10px;
             padding: 15px;
-            transition: transform 0.3s, box-shadow 0.3s;
-            border: 1px solid rgba(74, 144, 226, 0.1);
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .match-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
         }
 
         .match-card h3 {
@@ -172,7 +194,21 @@
             align-items: center;
             gap: 15px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            border: 1px solid rgba(74, 144, 226, 0.1);
+        }
+        
+        @keyframes timerBlink {
+            0% { background-color: white; }
+            50% { background-color: rgba(231, 76, 60, 0.8); }
+            100% { background-color: white; }
+        }
+        
+        .timer-section.time-up {
+            animation: timerBlink 1s infinite;
+        }
+        
+        .timer-display.time-up {
+            color: var(--danger-color);
+            font-weight: bold;
         }
 
         .timer-input {
@@ -635,19 +671,31 @@
             remainingSeconds = minutes * 60;
             updateTimerDisplay();
             clearInterval(timerInterval);
+            
+            // Entferne die time-up Klasse vom Timer-Bereich
+            document.querySelector('.timer-section').classList.remove('time-up');
+            document.getElementById('timer-display').classList.remove('time-up');
+            
             timerInterval = setInterval(() => {
-                remainingSeconds--;
-                updateTimerDisplay();
                 if (remainingSeconds <= 0) {
                     clearInterval(timerInterval);
-                    alert("Zeit abgelaufen!");
+                    // Füge die time-up Klasse zum Timer-Bereich hinzu
+                    document.querySelector('.timer-section').classList.add('time-up');
+                    document.getElementById('timer-display').classList.add('time-up');
+                    return;
                 }
+                remainingSeconds--;
+                updateTimerDisplay();
             }, 1000);
         }
 
         function resetTimer() {
             clearInterval(timerInterval);
+            remainingSeconds = 0;
             updateTimerDisplay(true);
+            // Entferne die time-up Klasse vom Timer-Bereich
+            document.querySelector('.timer-section').classList.remove('time-up');
+            document.getElementById('timer-display').classList.remove('time-up');
         }
 
         function updateTimerDisplay(reset=false) {
@@ -656,8 +704,8 @@
                 display.textContent = "--:--";
                 return;
             }
-            const min = Math.floor(remainingSeconds / 60);
-            const sec = remainingSeconds % 60;
+            const min = Math.floor(Math.max(0, remainingSeconds) / 60);
+            const sec = Math.max(0, remainingSeconds) % 60;
             display.textContent = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
         }
 
@@ -678,11 +726,16 @@
     <h1>Grotto Turnier Manager</h1>
 
     <div class="timer-section">
-        <label for="timer-minutes">Matchzeit:</label>
-        <input type="number" id="timer-minutes" value="50" min="1" class="timer-input">
-        <button onclick="startTimer()" class="timer-button start">Start Timer</button>
-        <button onclick="resetTimer()" class="timer-button">Reset</button>
-        <strong id="timer-display" class="timer-display">--:--</strong>
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <label for="timer-minutes">Matchzeit:</label>
+                <input type="number" id="timer-minutes" value="50" min="1" class="timer-input">
+                <button onclick="startTimer()" class="timer-button start">Start Timer</button>
+                <button onclick="resetTimer()" class="timer-button">Reset</button>
+                <strong id="timer-display" class="timer-display">--:--</strong>
+            </div>
+            <div class="round-badge">Runde {{ current_round }}</div>
+        </div>
     </div>
 
     <div class="control-buttons" style="margin: 20px 0; display: flex; justify-content: space-between;">
@@ -714,7 +767,7 @@
                     <div class="match-grid">
             {% for match in matches %}
                             {% if match.table_size == table_size %}
-                            <div class="match-card">
+                            <div class="match-card" onclick="openResultModal('{{ match.table }}', '{{ match.player1 }}', '{{ match.player2 }}', '{{ match.table_size }}', '{{ match.score1 }}', '{{ match.score2 }}', '{{ match.dropout1 }}', '{{ match.dropout2 }}', {{ current_round }})">
                                 <div class="match-header">
                                     <span class="table-number">Tisch {{ match.table }}</span>
                                 </div>
@@ -748,13 +801,6 @@
                                         </span>
                                         <span class="player-score">{{ match.score2 if match.score2 else '-' }}</span>
                                     </div>
-                                </div>
-                                <div class="match-actions">
-                                    <button type="button" 
-                                            onclick="openResultModal('{{ match.table }}', '{{ match.player1 }}', '{{ match.player2 }}', '{{ match.table_size }}', '{{ match.score1 }}', '{{ match.score2 }}', '{{ match.dropout1 }}', '{{ match.dropout2 }}', {{ current_round }})" 
-                                            class="btn-result">
-                                        {% if match.score1 and match.score2 %}Ergebnis ändern{% else %}Ergebnis eintragen{% endif %}
-                                    </button>
                                 </div>
                             </div>
                     {% endif %}

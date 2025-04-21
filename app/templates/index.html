@@ -3,121 +3,177 @@
 <head>
     <title>MTG League Manager</title>
     <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #2ecc71;
+            --danger-color: #e74c3c;
+            --dark-color: #2c3e50;
+            --light-color: #f5f7fa;
+            --gradient-start: #4a90e2;
+            --gradient-end: #2ecc71;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            max-width: 1000px;
             margin: 0 auto;
             padding: 20px;
-            background-color: #f5f5f5;
+            background: linear-gradient(135deg, #f6f8fc 0%, #e9f0f7 100%);
+            color: var(--dark-color);
+            min-height: 100vh;
         }
 
         .container {
             background: white;
             padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 16px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         }
 
         h1 {
-            color: #2a2a2a;
+            color: var(--dark-color);
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
         }
 
         .setup-section {
             margin-bottom: 30px;
-            padding: 20px;
-            background: #f8f8f8;
-            border-radius: 8px;
-            border: 1px solid #eee;
+            padding: 25px;
+            background: var(--light-color);
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .setup-section:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
         .setup-section h2 {
-            color: #333;
+            color: var(--dark-color);
             margin-top: 0;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .setup-section h2::before {
+            content: "🎲";
             font-size: 1.2em;
         }
 
         .player-input-section {
             display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
+            gap: 12px;
+            margin-bottom: 20px;
         }
 
         .player-input-field {
             flex: 1;
-            padding: 8px 12px;
-            border: 2px solid #ddd;
-            border-radius: 4px;
+            padding: 12px 16px;
+            border: 2px solid rgba(74, 144, 226, 0.2);
+            border-radius: 8px;
             font-size: 1em;
+            transition: all 0.3s ease;
+            background: white;
         }
 
         .player-input-field:focus {
-            border-color: #9e9e9e;
+            border-color: var(--primary-color);
             outline: none;
-            box-shadow: 0 0 5px rgba(158, 158, 158, 0.5);
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
         }
 
         .add-player-btn {
-            background: #4C5BAF;
+            background: linear-gradient(135deg, var(--primary-color) 0%, #357abd 100%);
             color: white;
             border: none;
-            border-radius: 4px;
-            padding: 8px 16px;
+            border-radius: 8px;
+            padding: 12px 24px;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.3s ease;
+            font-weight: 500;
         }
 
         .add-player-btn:hover {
-            background: #3d4a8c;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
         .players-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
             background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
 
         .players-table th {
-            background: #f5f5f5;
-            padding: 10px;
+            background: linear-gradient(135deg, var(--dark-color) 0%, #34495e 100%);
+            color: white;
+            padding: 15px;
             text-align: left;
-            border-bottom: 2px solid #ddd;
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+
+        .players-table th:last-child {
+            text-align: right;
         }
 
         .players-table td {
-            padding: 8px 10px;
-            border-bottom: 1px solid #eee;
+            padding: 12px 15px;
+            border-bottom: 1px solid rgba(74, 144, 226, 0.1);
+        }
+
+        .players-table td:last-child {
+            text-align: right;
+        }
+
+        .players-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .players-table tr:hover {
+            background-color: var(--light-color);
         }
 
         .delete-btn {
-            background: #dc3545;
+            background: linear-gradient(135deg, var(--danger-color) 0%, #c0392b 100%);
             color: white;
             border: none;
-            border-radius: 4px;
-            padding: 4px 8px;
+            border-radius: 6px;
+            padding: 6px 12px;
             cursor: pointer;
             font-size: 0.9em;
-            transition: background 0.2s;
+            transition: all 0.3s ease;
         }
 
         .delete-btn:hover {
-            background: #c82333;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(231, 76, 60, 0.2);
         }
 
         .player-count {
-            color: #666;
-            font-size: 0.9em;
-            margin-top: 10px;
+            color: var(--dark-color);
+            font-size: 1em;
+            margin-top: 15px;
             text-align: right;
+            font-weight: 500;
         }
 
         .group-sizes {
             display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
+            gap: 12px;
+            margin-bottom: 25px;
             flex-wrap: wrap;
         }
 
@@ -126,209 +182,265 @@
         }
 
         .size-label {
-            padding: 8px 15px;
-            background: #f0f0f0;
-            border: 2px solid #ddd;
-            border-radius: 4px;
+            padding: 10px 20px;
+            background: white;
+            border: 2px solid rgba(74, 144, 226, 0.2);
+            border-radius: 8px;
             cursor: pointer;
             user-select: none;
-            transition: all 0.2s ease;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .size-label::before {
+            content: "👥";
         }
 
         .size-checkbox:checked + .size-label {
-            background: #4C5BAF;
+            background: linear-gradient(135deg, var(--primary-color) 0%, #357abd 100%);
             color: white;
-            border-color: #3d4a8c;
+            border-color: transparent;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(74, 144, 226, 0.2);
         }
 
         .submit-button {
-            background: #4C5BAF;
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
             color: white;
-            padding: 12px 24px;
+            padding: 15px 30px;
             border: none;
-            border-radius: 4px;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 1em;
+            font-size: 1.1em;
             width: 100%;
-            transition: background 0.2s ease;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            margin-top: 20px;
         }
 
         .submit-button:hover {
-            background: #3d4a8c;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
         .error-message {
-            color: #dc3545;
-            padding: 10px;
-            margin-bottom: 15px;
-            border: 1px solid #dc3545;
-            border-radius: 4px;
-            background: #fff;
+            color: white;
+            padding: 12px;
+            margin-bottom: 20px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--danger-color) 0%, #c0392b 100%);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .error-message::before {
+            content: "⚠️";
         }
 
         .info-text {
-            color: #666;
-            font-size: 0.9em;
-            margin: 10px 0;
+            color: var(--dark-color);
+            font-size: 1em;
+            margin: 15px 0;
+            line-height: 1.5;
         }
 
         .help-text {
-            font-size: 0.85em;
+            font-size: 0.9em;
             color: #666;
-            margin-top: 5px;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(74, 144, 226, 0.1);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .help-text::before {
+            content: "💡";
+        }
+
+        .test-players-btn {
+            background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+            margin: 0 auto 20px;
+            display: block;
+        }
+
+        .test-players-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(155, 89, 182, 0.2);
+        }
+
+        .app-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .app-title {
+            font-size: 3em;
+            margin: 0;
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: none;
+        }
+
+        .app-subtitle {
+            color: #666;
+            font-size: 1.2em;
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🎴 MTG League Manager 🃏</h1>
-        <button type="button" class="btn btn-secondary mt-2" onclick="addTestPlayers()">Test-Spieler hinzufügen</button>
-        {% if error %}
-        <div class="error-message">
-            {{ error }}
+        <div class="app-header">
+            <h1 class="app-title">Grotto MTG League Manager</h1>
         </div>
+
+        <button type="button" class="test-players-btn" onclick="addTestPlayers()">🎮 Test-Spieler hinzufügen</button>
+
+        {% if error %}
+        <div class="error-message">{{ error }}</div>
         {% endif %}
 
-        <form action="/pair" method="post" id="tournament-form" onsubmit="return validateForm()">
+        <form method="POST" action="{{ url_for('main.pair') }}">
             <div class="setup-section">
-                <h2>👥 Spielerliste</h2>
-                <div class="player-input-section">
-                    <input type="text" id="player-name" class="player-input-field" placeholder="Spielername eingeben...">
-                    <button type="button" class="add-player-btn" onclick="addPlayer()">Hinzufügen</button>
-                </div>
-                <table class="players-table" id="player-table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th style="width: 80px;">Aktion</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    </tbody>
-                </table>
-                <p class="player-count" id="player-count">Spieler insgesamt: 0</p>
-            </div>
-
-            <div class="setup-section">
-                <h2>🎯 Tischgrößen</h2>
+                <h2>Tischgrössen auswählen</h2>
                 <div class="group-sizes">
                     <input type="checkbox" id="size6" name="group_sizes" value="6" class="size-checkbox">
                     <label for="size6" class="size-label">6 Spieler</label>
-
+                    
                     <input type="checkbox" id="size8" name="group_sizes" value="8" class="size-checkbox">
                     <label for="size8" class="size-label">8 Spieler</label>
-
+                    
                     <input type="checkbox" id="size10" name="group_sizes" value="10" class="size-checkbox">
                     <label for="size10" class="size-label">10 Spieler</label>
-
+                    
                     <input type="checkbox" id="size12" name="group_sizes" value="12" class="size-checkbox">
                     <label for="size12" class="size-label">12 Spieler</label>
                 </div>
-                <p class="help-text">Wähle die erlaubten Tischgrößen für das Turnier.</p>
+                <div class="help-text">Wähle die gewünschten Tischgrössen für dein Turnier</div>
             </div>
 
-            <button type="submit" class="submit-button">Turnier starten</button>
-        </form>
+            <div class="setup-section">
+                <h2>Spieler hinzufügen</h2>
+                <div class="player-input-section">
+                    <input type="text" id="playerName" class="player-input-field" placeholder="Spielername eingeben...">
+                    <button type="button" class="add-player-btn" onclick="addPlayer()">Hinzufügen</button>
+                </div>
 
-        <p class="info-text">
-            Nach dem Start werden die Spieler automatisch in Gruppen eingeteilt und das Turnier kann beginnen.
-        </p>
+                <table class="players-table" id="playersTable">
+                    <thead>
+                        <tr>
+                            <th>Spieler</th>
+                            <th>Aktion</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if players_text %}
+                            {% for player in players_text.split('\n') %}
+                                {% if player.strip() %}
+                                <tr>
+                                    <td>
+                                        <input type="hidden" name="players" value="{{ player }}">
+                                        {{ player }}
+                                    </td>
+                                    <td>
+                                        <button type="button" class="delete-btn" onclick="this.closest('tr').remove();">Entfernen</button>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+                <div class="player-count">Anzahl Spieler: <span id="playerCount">{{ players_text.split('\n')|length if players_text else 0 }}</span></div>
+            </div>
+
+            <button type="submit" class="submit-button">🎲 Turnier starten</button>
+        </form>
     </div>
 
     <script>
-        let initialPlayers = [
-            {% for p in players_text.splitlines() if p.strip() %}
-                "{{ p }}",
-            {% endfor %}
-        ];
-
-        function addPlayer(name = null) {
-            const nameInput = document.getElementById("player-name");
-            const table = document.getElementById("player-table").getElementsByTagName('tbody')[0];
-            
-            const playerName = name || nameInput.value.trim();
+        function addPlayer() {
+            const playerName = document.getElementById('playerName').value.trim();
             if (!playerName) return;
 
-            // Prüfen auf Duplikate
-            const existingPlayers = Array.from(table.getElementsByTagName('td'))
-                .filter((td, i) => i % 2 === 0)
-                .map(td => td.textContent);
-            if (existingPlayers.includes(playerName)) {
-                alert("Dieser Spieler ist bereits in der Liste!");
-                return;
-            }
-
-            const row = table.insertRow();
-            const nameCell = row.insertCell(0);
-            const actionCell = row.insertCell(1);
-
-            nameCell.textContent = playerName;
-            actionCell.innerHTML = '<button type="button" class="delete-btn" onclick="deleteRow(this)">✕</button>';
-
-            const hiddenInput = document.createElement("input");
-            hiddenInput.type = "hidden";
-            hiddenInput.name = "players";
-            hiddenInput.value = playerName;
-            row.appendChild(hiddenInput);
-
-            if (!name) {
-                nameInput.value = "";
-                nameInput.focus();
-            }
-            updatePlayerCount();
-        }
-
-        function deleteRow(btn) {
-            const row = btn.closest("tr");
-            row.remove();
+            const table = document.getElementById('playersTable').getElementsByTagName('tbody')[0];
+            const newRow = table.insertRow();
+            
+            const cell1 = newRow.insertCell(0);
+            const cell2 = newRow.insertCell(1);
+            
+            cell1.innerHTML = `
+                <input type="hidden" name="players" value="${playerName}">
+                ${playerName}
+            `;
+            
+            cell2.innerHTML = `
+                <button type="button" class="delete-btn" onclick="this.closest('tr').remove(); updatePlayerCount();">
+                    Entfernen
+                </button>
+            `;
+            
+            document.getElementById('playerName').value = '';
             updatePlayerCount();
         }
 
         function updatePlayerCount() {
-            const table = document.getElementById("player-table");
-            const count = table.getElementsByTagName('tbody')[0].rows.length;
-            document.getElementById("player-count").textContent = "Spieler insgesamt: " + count;
+            const count = document.getElementsByName('players').length;
+            document.getElementById('playerCount').textContent = count;
         }
 
-        // Event Listener für Enter-Taste
-        document.getElementById("player-name").addEventListener("keypress", function(event) {
-            if (event.key === "Enter") {
-                event.preventDefault();
+        function addTestPlayers() {
+            const testPlayers = [
+                "Max", "Anna", "Tim", "Lisa", "Felix", "Sarah",
+                "Tom", "Laura", "Paul", "Emma", "David", "Julia"
+            ];
+            
+            const table = document.getElementById('playersTable').getElementsByTagName('tbody')[0];
+            table.innerHTML = '';
+            
+            testPlayers.forEach(player => {
+                const newRow = table.insertRow();
+                const cell1 = newRow.insertCell(0);
+                const cell2 = newRow.insertCell(1);
+                
+                cell1.innerHTML = `
+                    <input type="hidden" name="players" value="${player}">
+                    ${player}
+                `;
+                
+                cell2.innerHTML = `
+                    <button type="button" class="delete-btn" onclick="this.closest('tr').remove(); updatePlayerCount();">
+                        Entfernen
+                    </button>
+                `;
+            });
+            
+            updatePlayerCount();
+        }
+
+        // Event-Listener für Enter-Taste im Eingabefeld
+        document.getElementById('playerName').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
                 addPlayer();
             }
         });
-
-        // Initiale Spieler laden
-        window.onload = function() {
-            initialPlayers.forEach(name => addPlayer(name));
-        };
-
-        function addTestPlayers() {
-            const startNumber = document.getElementById("player-table").getElementsByTagName('tbody')[0].rows.length + 1;
-            
-            for (let i = 0; i < 5; i++) {
-                const playerName = `Spieler ${startNumber + i}`;
-                addPlayer(playerName);
-            }
-        }
-
-        function validateForm() {
-            const table = document.getElementById("player-table");
-            const playerCount = table.getElementsByTagName('tbody')[0].rows.length;
-            
-            if (playerCount === 0) {
-                alert("Bitte fügen Sie mindestens einen Spieler hinzu, bevor Sie das Turnier starten.");
-                return false;
-            }
-
-            const selectedSizes = document.querySelectorAll('input[name="group_sizes"]:checked').length;
-            if (selectedSizes === 0) {
-                alert("Bitte wählen Sie mindestens eine Tischgröße aus.");
-                return false;
-            }
-
-            return true;
-        }
     </script>
 </body>
 </html>
