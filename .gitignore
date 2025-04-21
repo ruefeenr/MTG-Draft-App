@@ -42,6 +42,11 @@ data/
 .env
 .env.*
 
+# Secret keys and instance-specific data
+instance/
+config/secret_key.txt
+config/secret_key
+
 # OS
 .DS_Store
 Thumbs.db 

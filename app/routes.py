@@ -67,37 +67,61 @@ def generate_secret_key():
 
 def get_secret_key():
     """
-    Holt den Secret Key aus der Konfigurationsdatei oder erstellt einen neuen.
-    Der Key wird in einer Datei gespeichert, damit er über Neustarts hinweg bestehen bleibt.
+    Holt den Secret Key aus der Umgebungsvariable oder generiert einen neuen.
+    Die Priorität ist:
+    1. Umgebungsvariable FLASK_SECRET_KEY
+    2. Lokale .env Datei (wenn vorhanden)
+    3. In Entwicklungsumgebungen: Datei im .gitignore-geschützten Verzeichnis
+    4. Fallback: Temporärer Secret Key (nicht persistent)
     """
-    config_dir = "config"
-    config_file = os.path.join(config_dir, "secret_key.txt")
-    
-    # Prüfe ob eine Umgebungsvariable gesetzt ist
+    # 1. Prüfe ob eine Umgebungsvariable gesetzt ist
     if os.environ.get('FLASK_SECRET_KEY'):
         return os.environ.get('FLASK_SECRET_KEY')
     
-    # Erstelle das Konfig-Verzeichnis, falls es nicht existiert
-    if not os.path.exists(config_dir):
-        os.makedirs(config_dir)
-    
-    # Versuche den Key aus der Datei zu lesen
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, 'r') as f:
-                return f.read().strip()
-        except:
-            pass  # Falls das Lesen fehlschlägt, generieren wir einen neuen Key
-    
-    # Generiere einen neuen Key und speichere ihn
-    secret_key = generate_secret_key()
+    # 2. Versuche aus .env-Datei zu laden, falls python-dotenv installiert ist
     try:
-        with open(config_file, 'w') as f:
-            f.write(secret_key)
-        return secret_key
-    except:
-        # Fallback für den Fall, dass wir nicht in die Datei schreiben können
-        return generate_secret_key()
+        from dotenv import load_dotenv
+        load_dotenv()  # Lädt Variablen aus .env in die Umgebung
+        if os.environ.get('FLASK_SECRET_KEY'):
+            return os.environ.get('FLASK_SECRET_KEY')
+    except ImportError:
+        # python-dotenv ist nicht installiert - ignorieren
+        pass
+    
+    # 3. Im Entwicklungsmodus: Nutze eine Datei in einem sicheren, .gitignore-geschützten Verzeichnis
+    config_dir = "instance"  # Flask-Standard für nicht-versionierte Konfiguration
+    config_file = os.path.join(config_dir, "secret_key")
+    
+    if DEBUG:  # Nur im Debug-Modus verwenden wir die Datei
+        # Erstelle das Konfig-Verzeichnis, falls es nicht existiert
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+        
+        # Versuche den Key aus der Datei zu lesen
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r') as f:
+                    key = f.read().strip()
+                    if key:  # Stellen sicher, dass der Key nicht leer ist
+                        return key
+            except:
+                pass  # Bei Fehlern einfach einen neuen Key generieren
+        
+        # Generiere einen neuen Key und speichere ihn
+        secret_key = generate_secret_key()
+        try:
+            with open(config_file, 'w') as f:
+                f.write(secret_key)
+            print("HINWEIS: Ein neuer Secret Key wurde in 'instance/secret_key' generiert")
+            print("WICHTIG: Dieses Verzeichnis sollte in .gitignore aufgenommen werden!")
+            return secret_key
+        except Exception as e:
+            print(f"WARNUNG: Secret Key konnte nicht gespeichert werden: {e}")
+    
+    # 4. Fallback: Temporärer Key (Achtung: ändert sich bei jedem Neustart!)
+    print("WARNUNG: Verwende temporären Secret Key - Sessions gehen bei Neustart verloren!")
+    print("EMPFEHLUNG: Setzen Sie FLASK_SECRET_KEY als Umgebungsvariable für Persistenz.")
+    return generate_secret_key()
 
 # Setze den Secret Key
 main.secret_key = get_secret_key()
