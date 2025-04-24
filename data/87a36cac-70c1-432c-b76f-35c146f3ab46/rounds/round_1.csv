@@ -1,5 +1,0 @@
-table,player1,player2,score1,score2,table_size,dropout1,dropout2
-1,Spieler 8,Spieler 7,0,2,8,true,true
-2,Spieler 4,Spieler 3,,,8,false,false
-3,Spieler 5,Spieler 1,,,8,false,false
-4,Spieler 2,Spieler 6,,,8,false,false

@@ -277,7 +277,10 @@ def get_player_statistics(player_name: str) -> Dict[str, Any]:
     stats = defaultdict(int)
     tournaments_played = set()
     opponents = set()
-    power_nine_count = 0  # Zähler für alle Power Nine Karten über alle Turniere
+    power_nine_count = 0  # Gesamtzähler für alle Power Nine Karten über alle Turniere
+    
+    # Dictionary für die individuelle Zählung jeder Power Nine Karte
+    power_nine_individual_counts = {card: 0 for card in POWER_NINE}
     
     # Durchsuche alle tournament_data/results.csv Einträge
     results_file = os.path.join("tournament_data", "results.csv")
@@ -355,11 +358,15 @@ def get_player_statistics(player_name: str) -> Dict[str, Any]:
                             tournament_power_nine = json.load(f)
                             # Wenn der Spieler Power Nine Karten in diesem Turnier hatte
                             if player_name in tournament_power_nine:
-                                # Zähle alle True-Werte (Karten, die der Spieler hatte)
+                                # Für jede Karte individuell zählen
                                 player_p9 = tournament_power_nine[player_name]
                                 for card, has_card in player_p9.items():
                                     if has_card:
+                                        # Erhöhe die Gesamtzahl
                                         power_nine_count += 1
+                                        # Erhöhe die individuelle Zählung für diese Karte
+                                        if card in power_nine_individual_counts:
+                                            power_nine_individual_counts[card] += 1
                     except Exception as e:
                         print(f"Fehler beim Lesen der Power Nine Daten für Turnier {tournament_id}: {e}")
     
@@ -368,6 +375,9 @@ def get_player_statistics(player_name: str) -> Dict[str, Any]:
     stats["tournaments_played"] = len(tournaments_played)
     stats["unique_opponents"] = len(opponents)
     stats["power_nine_total"] = power_nine_count  # Hinzufügen der Power Nine Gesamtzahl
+    
+    # Füge die individuellen Zählungen für jede Power Nine Karte hinzu
+    stats["power_nine_counts"] = power_nine_individual_counts
     
     # Berechne Gewinnraten
     if stats["total_matches"] > 0:

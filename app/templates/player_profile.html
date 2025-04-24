@@ -553,6 +553,45 @@
                 </div>
             </div>
             
+            <!-- Power Nine Karten des Spielers anzeigen -->
+            <div class="power-nine-collection">
+                <h3 style="margin-top: 20px; color: #2c3e50; font-size: 1.2em; text-align: center;">Power Nine Sammlung</h3>
+                <div class="power-nine-cards" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 15px;">
+                    {% for card_name in power_nine %}
+                        {% set has_card = player_data.power_nine[card_name] %}
+                        {% set card_emoji = {
+                            "Black Lotus": "🌸",
+                            "Ancestral Recall": "🌊",
+                            "Time Walk": "⏱️",
+                            "Mox Sapphire": "💎",
+                            "Mox Jet": "⚫",
+                            "Mox Ruby": "❤️",
+                            "Mox Pearl": "⚪",
+                            "Mox Emerald": "💚",
+                            "Timetwister": "🌀"
+                        } %}
+                        <div class="power-nine-card-item" style="
+                            background: {{ 'linear-gradient(135deg, #f0f9ff 0%, #e1f5fe 100%)' if has_card else '#f5f5f5' }};
+                            border-radius: 8px;
+                            padding: 15px;
+                            text-align: center;
+                            border: 2px solid {{ '#4a90e2' if has_card else '#e0e0e0' }};
+                            opacity: {{ '1' if has_card else '0.7' }};
+                            box-shadow: {{ '0 4px 8px rgba(0,0,0,0.1)' if has_card else 'none' }};
+                            position: relative;
+                        ">
+                            {% if has_card %}
+                            <div style="position: absolute; top: 5px; right: 8px; font-size: 0.8em; font-weight: bold; color: #4a90e2; background: rgba(255,255,255,0.8); border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;">{{ player_stats.power_nine_counts[card_name] }}</div>
+                            {% endif %}
+                            <div style="font-size: 2em; margin-bottom: 10px;">{{ card_emoji[card_name] }}</div>
+                            <div style="font-weight: {{ '600' if has_card else '400' }}; color: {{ '#2c3e50' if has_card else '#666' }};">
+                                {{ card_name }}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+            
             <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px; text-align: center;">
                 <p style="margin-bottom: 0; color: #6c757d;">Power Nine Karten werden während der Turniere zugewiesen. 
                 Hier siehst du eine Zusammenfassung aller Karten, die du in bisherigen Turnieren erhalten hast.</p>

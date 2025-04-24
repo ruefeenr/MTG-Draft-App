@@ -1524,7 +1524,7 @@
                         console.log('Ergebnis erfolgreich gespeichert!', data);
                         
                         // Zeige eine kurze Erfolgsmeldung an
-                        showFloatingMessage('Ergebnis erfolgreich gespeichert');
+                        // showFloatingMessage('Ergebnis erfolgreich gespeichert');
                         
                         // Bei erfolgreicher Speicherung noch einmal die lokale UI aktualisieren
                         updateMatchResult(table, score1, score2, scoreDraws, dropout1, dropout2);
@@ -1532,7 +1532,7 @@
                         // Nach kurzer Verzögerung Seite neu laden, um sowohl Leaderboard als auch Power Nine Emojis zu aktualisieren
                         setTimeout(() => {
                             performFullReload();
-                        }, 100);
+                        }, 1);
                     })
                     .catch(error => {
                         console.error('Fehler beim Speichern des Ergebnisses:', error);
@@ -1540,7 +1540,7 @@
                         if (error.message) {
                             errorMessage += ': ' + error.message;
                         }
-                        showFloatingMessage(errorMessage, true);
+                        // showFloatingMessage(errorMessage, true);
                     });
                     
                     return false; // Stoppte die normale Formularverarbeitung
@@ -1699,12 +1699,12 @@
                     closePowerNineModal();
                     
                     // Zeige kurze Erfolgsmeldung als Toast/Popup
-                    showFloatingMessage('Power Nine Karten erfolgreich aktualisiert!');
+                    // showFloatingMessage('Power Nine Karten erfolgreich aktualisiert!');
                     
                     // Nach kurzer Verzögerung Seite neu laden, um alle Anzeigen korrekt zu aktualisieren
                     setTimeout(() => {
                         performFullReload();
-                    }, 100);
+                    }, 1);
                 } else {
                     alert('Fehler beim Speichern: ' + data.message);
                 }
@@ -1714,7 +1714,7 @@
                 if (error.message) {
                     errorMessage += ': ' + error.message;
                 }
-                showFloatingMessage(errorMessage, true);
+                // showFloatingMessage(errorMessage, true);
             }
         }
         

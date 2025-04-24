@@ -1445,9 +1445,16 @@ def players_list():
             "total_matches": player_stats.get("total_matches", 0)
         }
     
+    # Sortiere die Spieler nach Gewinnrate (absteigend)
+    sorted_players = dict(sorted(
+        players_data.items(), 
+        key=lambda item: item[1]["match_win_percentage"], 
+        reverse=True
+    ))
+    
     return render_template(
         "players_list.html",
-        players=players_data
+        players=sorted_players
     )
 
 @main.route("/player/<player_name>")

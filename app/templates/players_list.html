@@ -47,7 +47,7 @@
 
         .player-list {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            grid-template-columns: repeat(4, 1fr);
             gap: 20px;
             margin-top: 30px;
         }
@@ -148,9 +148,21 @@
             font-size: 1.5em;
         }
 
+        @media (max-width: 1000px) {
+            .player-list {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
         @media (max-width: 768px) {
             .player-list {
-                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .player-list {
+                grid-template-columns: 1fr;
             }
         }
     </style>
