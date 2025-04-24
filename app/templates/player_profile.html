@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MTG League Manager - Spielerprofil: {{ player_name }}</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #2ecc71;
+            --danger-color: #e74c3c;
+            --dark-color: #2c3e50;
+            --light-color: #f5f7fa;
+            --gradient-start: #4a90e2;
+            --gradient-end: #2ecc71;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #f6f8fc 0%, #e9f0f7 100%);
+            color: var(--dark-color);
+            min-height: 100vh;
+        }
+
+        .profile-header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            position: relative;
+        }
+
+        h1 {
+            color: var(--dark-color);
+            margin-bottom: 10px;
+            font-size: 2.5em;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+
+        .profile-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .profile-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .stats-card, .power-nine-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        .card-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--light-color);
+            color: var(--dark-color);
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .stat-item {
+            padding: 15px;
+            background: var(--light-color);
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: 600;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .power-nine-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .card-item {
+            background: var(--light-color);
+            border-radius: 8px;
+            padding: 15px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            position: relative;
+        }
+
+        .card-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .card-item-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--dark-color);
+        }
+
+        .card-checkbox {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+        }
+
+        .card-checkbox input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .save-button {
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            display: block;
+            margin: 25px auto 0;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .save-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .navigation {
+            margin-bottom: 30px;
+        }
+
+        .nav-button {
+            display: inline-block;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+            color: white;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+        }
+
+        .nav-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .match-history {
+            margin-top: 30px;
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        .history-item {
+            padding: 15px;
+            margin-bottom: 10px;
+            background: var(--light-color);
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .win {
+            color: var(--secondary-color);
+            font-weight: 600;
+        }
+
+        .loss {
+            color: var(--danger-color);
+            font-weight: 600;
+        }
+
+        .draw {
+            color: #f39c12;
+            font-weight: 600;
+        }
+
+        .power-nine-count {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);
+            color: white;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            font-size: 1.5em;
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        .power-nine-count small {
+            font-size: 0.5em;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+    <div class="navigation">
+        <a href="{{ url_for('main.players_list') }}" class="nav-button">← Zurück zur Spielerliste</a>
+        <a href="{{ url_for('main.index') }}" class="nav-button">Zur Startseite</a>
+    </div>
+
+    <div class="profile-header">
+        <h1>{{ player_name }}</h1>
+        
+        {% set power_nine_count = player_data.power_nine.values() | sum %}
+        {% if power_nine_count > 0 %}
+            <div class="power-nine-count">
+                {{ power_nine_count }}<br>
+                <small>P9</small>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="profile-content">
+        <div class="stats-card">
+            <div class="card-title">Spielerstatistiken</div>
+            
+            <div class="stat-grid">
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.tournaments_played }}</div>
+                    <div class="stat-label">Gespielte Turniere</div>
+                </div>
+                
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.total_matches }}</div>
+                    <div class="stat-label">Gespielte Matches</div>
+                </div>
+                
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.match_win_percentage }}%</div>
+                    <div class="stat-label">Match-Gewinnrate</div>
+                </div>
+                
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.game_win_percentage }}%</div>
+                    <div class="stat-label">Spiel-Gewinnrate</div>
+                </div>
+                
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.matches_won }}</div>
+                    <div class="stat-label">Gewonnene Matches</div>
+                </div>
+                
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.matches_lost }}</div>
+                    <div class="stat-label">Verlorene Matches</div>
+                </div>
+                
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.games_won }}</div>
+                    <div class="stat-label">Gewonnene Spiele</div>
+                </div>
+                
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.games_lost }}</div>
+                    <div class="stat-label">Verlorene Spiele</div>
+                </div>
+                
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.unique_opponents }}</div>
+                    <div class="stat-label">Einzigartige Gegner</div>
+                </div>
+                
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.games_draw }}</div>
+                    <div class="stat-label">Unentschieden</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="power-nine-card">
+            <div class="card-title">Power Nine Karten</div>
+            
+            <form method="POST" action="{{ url_for('main.update_player', player_name=player_name) }}">
+                <div class="power-nine-grid">
+                    {% for card in power_nine %}
+                        <div class="card-item">
+                            <div class="card-item-title">{{ card }}</div>
+                            <div class="card-checkbox">
+                                <input type="checkbox" name="power_nine_{{ card|replace(' ', '_') }}" id="card_{{ card|replace(' ', '_') }}" 
+                                       {% if player_data.power_nine.get(card, False) %}checked{% endif %}>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+                
+                <button type="submit" class="save-button">Änderungen speichern</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html> 

@@ -1436,3 +1436,71 @@ def delete_tournament(tournament_id):
         return jsonify({"success": True, "message": "Turnier erfolgreich gelöscht"})
     except Exception as e:
         return jsonify({"success": False, "message": f"Fehler beim Löschen: {str(e)}"}), 500
+
+@main.route("/players")
+def players_list():
+    """Zeigt eine Übersichtsseite mit allen Spielern"""
+    # Importiere das player_stats Modul
+    from .player_stats import get_all_players, load_player_data, get_player_statistics
+    
+    # Sammle alle Spieler
+    all_players = get_all_players()
+    
+    # Bereite die Spielerdaten für die Anzeige vor
+    players_data = {}
+    for player in all_players:
+        # Lade Spielerdaten und Statistiken
+        player_data = load_player_data(player)
+        player_stats = get_player_statistics(player)
+        
+        # Zähle Power Nine Karten
+        power_nine_count = sum(1 for card, has_card in player_data.get("power_nine", {}).items() if has_card)
+        
+        # Speichere strukturierte Daten für die Anzeige
+        players_data[player] = {
+            "power_nine_count": power_nine_count,
+            "tournaments_played": player_stats.get("tournaments_played", 0),
+            "match_win_percentage": player_stats.get("match_win_percentage", 0),
+            "total_matches": player_stats.get("total_matches", 0)
+        }
+    
+    return render_template(
+        "players_list.html",
+        players=players_data
+    )
+
+@main.route("/player/<player_name>")
+def player_profile(player_name):
+    """Zeigt das Profil eines Spielers an"""
+    # Importiere das player_stats Modul
+    from .player_stats import load_player_data, get_player_statistics, POWER_NINE
+    
+    # Lade Spielerdaten und Statistiken
+    player_data = load_player_data(player_name)
+    player_stats = get_player_statistics(player_name)
+    
+    return render_template(
+        "player_profile.html",
+        player_name=player_name,
+        player_data=player_data,
+        player_stats=player_stats,
+        power_nine=POWER_NINE
+    )
+
+@main.route("/player/<player_name>/update", methods=["POST"])
+def update_player(player_name):
+    """Aktualisiert die Daten für einen Spieler"""
+    # Importiere das player_stats Modul
+    from .player_stats import update_player_power_nine, POWER_NINE
+    
+    # Sammle die Power Nine Daten aus dem Formular
+    power_nine_data = {}
+    for card in POWER_NINE:
+        card_field = f"power_nine_{card.replace(' ', '_')}"
+        power_nine_data[card] = card_field in request.form
+    
+    # Aktualisiere die Spielerdaten
+    update_player_power_nine(player_name, power_nine_data)
+    
+    # Leite zurück zum Spielerprofil
+    return redirect(url_for("main.player_profile", player_name=player_name))
