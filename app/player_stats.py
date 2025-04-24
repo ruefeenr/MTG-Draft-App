@@ -17,10 +17,27 @@ POWER_NINE = [
 
 def get_players_data_path() -> str:
     """Gibt den Pfad zur players_data.json Datei zurück"""
-    data_dir = "data"
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir, exist_ok=True)
-    return os.path.join(data_dir, "players_data.json")
+    try:
+        # Verwende einen Ordner im Hauptverzeichnis der Anwendung
+        data_dir = os.path.abspath("data")
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+            print(f"Datenverzeichnis wurde erstellt: {data_dir}")
+        
+        # Verwende den Unterordner 'players' für Spielerdaten
+        players_dir = os.path.join(data_dir, "players")
+        if not os.path.exists(players_dir):
+            os.makedirs(players_dir, exist_ok=True)
+            print(f"Spielerverzeichnis wurde erstellt: {players_dir}")
+        
+        # Rückgabe des vollständigen Pfads zur Datei
+        file_path = os.path.join(players_dir, "players_data.json")
+        print(f"Verwende Spielerdatendatei: {file_path}")
+        return file_path
+    except Exception as e:
+        print(f"Fehler beim Erstellen des Dateipfads: {str(e)}")
+        # Fallback auf relativen Pfad im aktuellen Verzeichnis
+        return os.path.join("data", "players_data.json")
 
 def create_default_player_data() -> Dict[str, Any]:
     """Erstellt eine Standarddatenstruktur für neue Spieler"""
@@ -80,6 +97,139 @@ def update_player_power_nine(player_name: str, power_nine_data: Dict[str, bool])
     # Speichere die aktualisierten Daten
     return save_players_data(players_data)
 
+def delete_player(player_name: str) -> bool:
+    """Löscht einen Spieler aus allen gespeicherten Daten (players_data.json und Turnierdaten)"""
+    try:
+        success = True
+        
+        # 1. Aus players_data.json löschen
+        players_data_file = get_players_data_path()
+        data_dir = os.path.dirname(players_data_file)
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+            print(f"Datenverzeichnis wurde erstellt: {data_dir}")
+        
+        players_data = load_all_players_data()
+        
+        # Prüfe, ob der Spieler in den Spielerdaten existiert
+        if player_name in players_data:
+            # Entferne den Spieler aus den Daten
+            print(f"Entferne Spieler '{player_name}' aus Spielerdaten")
+            del players_data[player_name]
+            
+            # Speichere die aktualisierten Daten
+            if not save_players_data(players_data):
+                print(f"Fehler beim Speichern der Daten nach dem Löschen von '{player_name}'")
+                success = False
+        else:
+            print(f"Spieler '{player_name}' wurde nicht in der players_data.json gefunden")
+
+        # 2. Aus tournament_data/results.csv entfernen (ersetze Spielernamen mit "DELETED_PLAYER")
+        results_file = os.path.join("tournament_data", "results.csv")
+        if os.path.exists(results_file):
+            try:
+                import csv
+                # Lese die aktuelle Datei
+                rows = []
+                with open(results_file, 'r', newline='', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    header = reader.fieldnames
+                    
+                    for row in reader:
+                        # Ersetze den Spielernamen, wenn er vorkommt
+                        if row.get("Player 1") == player_name:
+                            row["Player 1"] = "DELETED_PLAYER"
+                        if row.get("Player 2") == player_name:
+                            row["Player 2"] = "DELETED_PLAYER"
+                        rows.append(row)
+                
+                # Schreibe die aktualisierte Datei
+                with open(results_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=header)
+                    writer.writeheader()
+                    writer.writerows(rows)
+                
+                print(f"Spieler '{player_name}' wurde aus den Turnierergebnissen entfernt")
+            except Exception as e:
+                print(f"Fehler beim Aktualisieren der Ergebnisdatei: {e}")
+                success = False
+        
+        # 3. Aus player_groups.json Dateien in allen Turnierordnern entfernen
+        data_dir = "data"
+        if os.path.exists(data_dir):
+            for tournament_id in os.listdir(data_dir):
+                tournament_dir = os.path.join(data_dir, tournament_id)
+                player_groups_file = os.path.join(tournament_dir, "player_groups.json")
+                
+                if os.path.exists(player_groups_file) and os.path.isfile(player_groups_file):
+                    try:
+                        # Lese die aktuelle player_groups.json
+                        with open(player_groups_file, 'r', encoding='utf-8') as f:
+                            player_groups = json.load(f)
+                        
+                        # Prüfe jede Gruppe und entferne den Spieler
+                        modified = False
+                        for group_name, group_players in player_groups.items():
+                            if player_name in group_players:
+                                player_groups[group_name] = [p for p in group_players if p != player_name]
+                                modified = True
+                                print(f"Spieler '{player_name}' aus Gruppe '{group_name}' in Turnier '{tournament_id}' entfernt")
+                        
+                        # Speichere die aktualisierte Datei, wenn Änderungen vorgenommen wurden
+                        if modified:
+                            with open(player_groups_file, 'w', encoding='utf-8') as f:
+                                json.dump(player_groups, f, indent=2)
+                    except Exception as e:
+                        print(f"Fehler beim Aktualisieren der Spielergruppen für Turnier {tournament_id}: {e}")
+                        success = False
+        
+        # 4. Aus den Rundendateien (rounds/round_X.csv) in allen Turnierordnern entfernen
+        if os.path.exists(data_dir):
+            for tournament_id in os.listdir(data_dir):
+                tournament_dir = os.path.join(data_dir, tournament_id)
+                rounds_dir = os.path.join(tournament_dir, "rounds")
+                
+                if os.path.exists(rounds_dir) and os.path.isdir(rounds_dir):
+                    for round_file in os.listdir(rounds_dir):
+                        if round_file.startswith("round_") and round_file.endswith(".csv"):
+                            round_path = os.path.join(rounds_dir, round_file)
+                            try:
+                                import csv
+                                # Lese die aktuelle Datei
+                                rows = []
+                                with open(round_path, 'r', newline='', encoding='utf-8') as f:
+                                    reader = csv.DictReader(f)
+                                    header = reader.fieldnames
+                                    
+                                    for row in reader:
+                                        # Ersetze den Spielernamen, wenn er vorkommt
+                                        if row.get("player1") == player_name:
+                                            row["player1"] = "DELETED_PLAYER"
+                                        if row.get("player2") == player_name:
+                                            row["player2"] = "DELETED_PLAYER"
+                                        rows.append(row)
+                                
+                                # Schreibe die aktualisierte Datei
+                                with open(round_path, 'w', newline='', encoding='utf-8') as f:
+                                    writer = csv.DictWriter(f, fieldnames=header)
+                                    writer.writeheader()
+                                    writer.writerows(rows)
+                                
+                                print(f"Spieler '{player_name}' wurde aus Runde {round_file} im Turnier '{tournament_id}' entfernt")
+                            except Exception as e:
+                                print(f"Fehler beim Aktualisieren der Rundendatei {round_file}: {e}")
+                                success = False
+        
+        if success:
+            print(f"Spieler '{player_name}' wurde erfolgreich aus allen Daten entfernt")
+        else:
+            print(f"Es gab Probleme beim vollständigen Entfernen des Spielers '{player_name}'")
+            
+        return success
+    except Exception as e:
+        print(f"Unerwarteter Fehler beim Löschen des Spielers '{player_name}': {str(e)}")
+        return False
+
 def get_all_players() -> Set[str]:
     """Sammelt alle Spielernamen aus allen gespeicherten Turnierdaten"""
     from collections import defaultdict
@@ -93,9 +243,9 @@ def get_all_players() -> Set[str]:
             with open(results_file, 'r', newline='', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if "Player 1" in row and row["Player 1"]:
+                    if "Player 1" in row and row["Player 1"] and row["Player 1"] != "DELETED_PLAYER":
                         all_players.add(row["Player 1"])
-                    if "Player 2" in row and row["Player 2"] and row["Player 2"] != "BYE":
+                    if "Player 2" in row and row["Player 2"] and row["Player 2"] != "DELETED_PLAYER" and row["Player 2"] != "BYE":
                         all_players.add(row["Player 2"])
         except Exception as e:
             print(f"Fehler beim Lesen der Ergebnisdatei: {e}")
@@ -111,12 +261,13 @@ def get_all_players() -> Set[str]:
                     with open(player_groups_file, 'r', encoding='utf-8') as f:
                         player_groups = json.load(f)
                         for group_players in player_groups.values():
-                            all_players.update(group_players)
+                            all_players.update([p for p in group_players if p != "DELETED_PLAYER"])
                 except Exception as e:
                     print(f"Fehler beim Lesen der Spielergruppen für Turnier {tournament_id}: {e}")
     
     # Füge auch alle Spieler aus den bestehenden Spielerdaten hinzu
-    all_players.update(load_all_players_data().keys())
+    players_data = load_all_players_data()
+    all_players.update([p for p in players_data.keys() if p != "DELETED_PLAYER"])
     
     return all_players
 
@@ -126,6 +277,7 @@ def get_player_statistics(player_name: str) -> Dict[str, Any]:
     stats = defaultdict(int)
     tournaments_played = set()
     opponents = set()
+    power_nine_count = 0  # Zähler für alle Power Nine Karten über alle Turniere
     
     # Durchsuche alle tournament_data/results.csv Einträge
     results_file = os.path.join("tournament_data", "results.csv")
@@ -141,7 +293,7 @@ def get_player_statistics(player_name: str) -> Dict[str, Any]:
                     if row.get("Player 1") == player_name:
                         # Dieser Spieler war Spieler 1
                         tournaments_played.add(tournament_id)
-                        if row.get("Player 2") and row.get("Player 2") != "BYE":
+                        if row.get("Player 2") and row.get("Player 2") != "BYE" and row.get("Player 2") != "DELETED_PLAYER":
                             opponents.add(row.get("Player 2"))
                         
                         # Berechne Spielergebnisse
@@ -165,7 +317,7 @@ def get_player_statistics(player_name: str) -> Dict[str, Any]:
                     elif row.get("Player 2") == player_name:
                         # Dieser Spieler war Spieler 2
                         tournaments_played.add(tournament_id)
-                        if row.get("Player 1"):
+                        if row.get("Player 1") and row.get("Player 1") != "DELETED_PLAYER":
                             opponents.add(row.get("Player 1"))
                         
                         # Berechne Spielergebnisse
@@ -188,10 +340,34 @@ def get_player_statistics(player_name: str) -> Dict[str, Any]:
         except Exception as e:
             print(f"Fehler beim Lesen der Ergebnisdatei für Statistiken: {e}")
     
+    # Durchsuche alle tournament_power_nine.json Dateien für diesen Spieler
+    data_dir = "data"
+    if os.path.exists(data_dir):
+        for tournament_id in os.listdir(data_dir):
+            # Überprüfe, ob der Spieler an diesem Turnier teilgenommen hat
+            if tournament_id in tournaments_played:
+                tournament_dir = os.path.join(data_dir, tournament_id)
+                power_nine_file = os.path.join(tournament_dir, "tournament_power_nine.json")
+                
+                if os.path.exists(power_nine_file):
+                    try:
+                        with open(power_nine_file, 'r', encoding='utf-8') as f:
+                            tournament_power_nine = json.load(f)
+                            # Wenn der Spieler Power Nine Karten in diesem Turnier hatte
+                            if player_name in tournament_power_nine:
+                                # Zähle alle True-Werte (Karten, die der Spieler hatte)
+                                player_p9 = tournament_power_nine[player_name]
+                                for card, has_card in player_p9.items():
+                                    if has_card:
+                                        power_nine_count += 1
+                    except Exception as e:
+                        print(f"Fehler beim Lesen der Power Nine Daten für Turnier {tournament_id}: {e}")
+    
     # Berechne abgeleitete Statistiken
     stats["total_matches"] = stats["matches_won"] + stats["matches_lost"] + stats["matches_draw"]
     stats["tournaments_played"] = len(tournaments_played)
     stats["unique_opponents"] = len(opponents)
+    stats["power_nine_total"] = power_nine_count  # Hinzufügen der Power Nine Gesamtzahl
     
     # Berechne Gewinnraten
     if stats["total_matches"] > 0:

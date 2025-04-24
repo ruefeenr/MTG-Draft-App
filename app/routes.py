@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, flash
 import uuid
 import random
 import itertools
@@ -353,7 +353,7 @@ def pair():
         os.makedirs(rounds_dir, exist_ok=True)
         round_file = os.path.join(rounds_dir, f'round_{current_round}.csv')
         
-        with open(round_file, 'w', newline='') as f:
+        with open(round_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'table_size', 'group_key'])
             writer.writeheader()
             writer.writerows(match_list)
@@ -385,14 +385,14 @@ def ensure_data_directory():
 def save_results():
     tournament_id = session.get("tournament_id", "unknown")
     if not tournament_id:
-        return redirect(url_for("main.index"))
+        return jsonify({"success": False, "message": "Kein aktives Turnier gefunden."}), 400
     
     # Prüfe, ob das Turnier bereits beendet wurde
-    tournament_ended = session.get("tournament_ended", False)
+    tournament_ended = check_tournament_status(tournament_id)
+    
     if tournament_ended:
-        # Wenn das Turnier bereits beendet ist, leite zur aktuellen Runde um
-        current_round = request.form.get("current_round", "1")
-        return redirect(url_for("main.show_round", round_number=int(current_round)))
+        # Wenn das Turnier bereits beendet ist, gebe eine Fehlermeldung zurück
+        return jsonify({"success": False, "message": "Das Turnier wurde bereits beendet."}), 400
 
     print("\n\n=== SAVE_RESULTS AUFGERUFEN ===")
     print(f"Tournament ID: {tournament_id}")
@@ -426,7 +426,7 @@ def save_results():
         print(f"Ergebnis in results.csv gespeichert")
     except Exception as e:
         print(f"Fehler beim Speichern in results.csv: {e}")
-        return redirect(url_for("main.show_round", round_number=int(current_round)))
+        return jsonify({"success": False, "message": f"Fehler beim Speichern der Ergebnisse: {str(e)}"}), 500
 
     
     # In Rundendatei aktualisieren
@@ -439,7 +439,7 @@ def save_results():
         
         if not os.path.exists(round_file):
             print(f"FEHLER: Rundendatei existiert nicht: {round_file}")
-            return redirect(url_for("main.show_round", round_number=int(current_round)))
+            return jsonify({"success": False, "message": f"Rundendatei existiert nicht: {round_file}"}), 404
         
         # Datei lesen
         matches = []
@@ -469,10 +469,11 @@ def save_results():
             print(f"Matches aus Datei gelesen: {len(matches)}")
         except Exception as e:
             print(f"Fehler beim Lesen der Rundendatei: {e}")
-            return redirect(url_for("main.show_round", round_number=int(current_round)))
+            return jsonify({"success": False, "message": f"Fehler beim Lesen der Rundendatei: {str(e)}"}), 500
         
         # Match finden und aktualisieren
         match_found = False
+        match_data = None
         for match in matches:
             print(f"Vergleiche Match: Tisch {match.get('table', 'unbekannt')} mit {table}")
             if str(match.get("table", "")) == str(table):
@@ -522,11 +523,13 @@ def save_results():
                 session["leg_players_set"] = marked_players
                 
                 match_found = True
+                match_data = match.copy()
                 print(f"Match aktualisiert: {match}")
                 break
         
         if not match_found:
             print(f"WARNUNG: Kein passendes Match für Tisch {table} gefunden!")
+            return jsonify({"success": False, "message": f"Kein Match für Tisch {table} gefunden."}), 404
         
         # Debug-Ausgabe aller zu speichernder Matches
         print("\nAlle Matches, die gespeichert werden:")
@@ -543,14 +546,34 @@ def save_results():
             print(f"Rundendatei erfolgreich aktualisiert")
         except Exception as e:
             print(f"Fehler beim Schreiben der Rundendatei: {e}")
+            return jsonify({"success": False, "message": f"Fehler beim Schreiben der Rundendatei: {str(e)}"}), 500
     except Exception as e:
         import traceback
         print(f"Allgemeiner Fehler bei Rundendatei: {e}")
         print(traceback.format_exc())
+        return jsonify({"success": False, "message": f"Allgemeiner Fehler: {str(e)}"}), 500
     
-    # Zurück zur Rundenansicht
-    print(f"Leite weiter zu Runde {current_round}")
-    return redirect(url_for("main.show_round", round_number=int(current_round)))
+    # Erfolgsantwort mit aktualisierten Matchdaten zurückgeben
+    response_data = {
+        "success": True,
+        "message": "Ergebnis erfolgreich gespeichert",
+        "match": {
+            "table": table,
+            "player1": player1,
+            "player2": player2,
+            "score1": score1,
+            "score2": score2,
+            "score_draws": score_draws,
+            "dropout1": "true" if dropout1 else "false",
+            "dropout2": "true" if dropout2 else "false",
+            "display_player1": match_data.get("display_player1", player1) if match_data else player1,
+            "display_player2": match_data.get("display_player2", player2) if match_data else player2
+        }
+    }
+    
+    # Zurück zur Rundenansicht (für nicht-Ajax Anfragen als Fallback)
+    print(f"Ergebnis erfolgreich gespeichert, JSON-Antwort wird gesendet")
+    return jsonify(response_data)
 
 def calculate_mtg_stats(results_file, tournament_id):
     """Berechnet MTG-spezifische Turnierstatistiken"""
@@ -674,8 +697,9 @@ def next_round():
     if not tournament_id:
         return redirect(url_for("main.index"))
     
-    # Prüfe, ob das Turnier bereits beendet wurde
-    tournament_ended = session.get("tournament_ended", False)
+    # Prüfe, ob das Turnier bereits beendet wurde - konsistente Prüfung
+    tournament_ended = check_tournament_status(tournament_id)
+    
     if tournament_ended:
         # Wenn das Turnier bereits beendet ist, leite zur letzten Runde um
         data_dir = os.path.join("data", tournament_id)
@@ -850,11 +874,39 @@ def next_round():
 
 @main.route("/start_tournament", methods=["GET"])
 def start_tournament():
-    # Vollständiges Zurücksetzen der Session beim Start eines neuen Turniers
+    # Vollständiges Zurücksetzen - vor dem Zugriff auf alte Turnier-ID
     session.clear()
-    session["tournament_id"] = str(uuid.uuid4())
+    
+    # Generiere eine neue Turnier-ID
+    new_tournament_id = str(uuid.uuid4())
+    session["tournament_id"] = new_tournament_id
+    
     # Explizit die Liste der markierten Spieler zurücksetzen
     session["leg_players_set"] = []
+    
+    # Explizit den Turnierstatus zurücksetzen
+    session["tournament_ended"] = False
+    
+    # Erstelle ein neues Datenverzeichnis für das Turnier
+    data_dir = os.path.join("data", new_tournament_id)
+    os.makedirs(data_dir, exist_ok=True)
+    
+    # Lösche die end_time.txt aus dem neuen Verzeichnis, falls sie durch einen
+    # Race Condition bereits existieren sollte (unwahrscheinlich, aber sicher ist sicher)
+    end_time_file = os.path.join(data_dir, "end_time.txt")
+    if os.path.exists(end_time_file):
+        try:
+            os.remove(end_time_file)
+            print(f"Unerwartete end_time.txt für neues Turnier {new_tournament_id} gelöscht")
+        except Exception as e:
+            print(f"Fehler beim Löschen einer unerwarteten end_time.txt: {e}")
+    
+    # Leere tournament_power_nine.json Datei erstellen
+    power_nine_file = os.path.join(data_dir, "tournament_power_nine.json")
+    with open(power_nine_file, 'w', encoding='utf-8') as f:
+        json.dump({}, f)
+    
+    print(f"Neues Turnier mit ID {new_tournament_id} wurde erfolgreich gestartet")
     return redirect(url_for("main.index"))
 
 @main.route("/continue_tournament", methods=["GET"])
@@ -1004,6 +1056,11 @@ def end_tournament():
     # Entferne nicht die tournament_id, damit der Benutzer zurückkehren kann
     session["tournament_ended"] = True
     
+    # Erstelle eine end_time.txt-Datei im Turnierverzeichnis für konsistente Endstatus-Prüfung
+    end_time_file = os.path.join(data_dir, "end_time.txt")
+    with open(end_time_file, "w", encoding="utf-8") as f:
+        f.write(datetime.now().strftime("%d.%m.%Y %H:%M"))
+    
     return render_template(
         "tournament_end.html",
         tournament_data=tournament_data,
@@ -1012,211 +1069,127 @@ def end_tournament():
 
 @main.route("/round/<int:round_number>")
 def show_round(round_number):
-    tournament_id = session.get("tournament_id")
+    """Zeigt die Paarungen und Ergebnisse für eine bestimmte Runde an"""
+    tournament_id = session.get('tournament_id')
+    
+    # Parameter für konsistente Turnierstatusmarkierung
+    ensure_marked_as_ended = request.args.get('ensure_marked_as_ended') == 'true'
+    
+    # Überprüfen, ob ein aktuelles Turnier existiert
     if not tournament_id:
-        return redirect(url_for("main.index"))
-    
-    # Prüfe, ob das Turnier als beendet markiert werden soll
-    ensure_marked_as_ended = request.args.get('ensure_marked_as_ended', 'false').lower() == 'true'
-    if ensure_marked_as_ended:
-        session["tournament_ended"] = True
-    
-    # Prüfe, ob das Turnier beendet wurde
-    tournament_ended = session.get("tournament_ended", False)
-    
-    print(f"\n\n=== SHOW_ROUND AUFGERUFEN: Runde {round_number} ===")
-    print(f"Tournament ID: {tournament_id}, Beendet: {tournament_ended}, Ensure Marked: {ensure_marked_as_ended}")
+        return redirect(url_for('main.index'))
 
     data_dir = os.path.join("data", tournament_id)
+    
+    # Wenn ensure_marked_as_ended=true, stelle sicher, dass die end_time.txt existiert
+    if ensure_marked_as_ended:
+        end_time_file = os.path.join(data_dir, "end_time.txt")
+        if not os.path.exists(end_time_file):
+            try:
+                with open(end_time_file, "w", encoding="utf-8") as f:
+                    f.write(datetime.now().strftime("%d.%m.%Y %H:%M"))
+                session["tournament_ended"] = True
+                print(f"Turnier {tournament_id} wurde als beendet markiert durch ensure_marked_as_ended Parameter")
+            except Exception as e:
+                print(f"Fehler beim Erstellen der end_time.txt: {e}")
+    
+    # Überprüfen, ob die angeforderte Runde gültig ist
+    round_file = os.path.join(data_dir, "rounds", f"round_{round_number}.csv")
+    if not os.path.exists(round_file):
+        # Keine Rundendatei gefunden - zurück zum Index leiten
+        flash(f"Runde {round_number} existiert nicht.")
+        return redirect(url_for('main.index'))
+        
+    # Bestimme die maximale Rundenzahl
+    total_rounds = 0
     rounds_dir = os.path.join(data_dir, "rounds")
-    
-    # Stelle sicher, dass die markierten Spieler in der Session bleiben
-    if "leg_players_set" not in session:
-        session["leg_players_set"] = []
-    
-    # Debug-Ausgabe der markierten Spieler
-    marked_players = session.get("leg_players_set", [])
-    print(f"Markierte Spieler in show_round: {marked_players}")
-
-    # Lade die player_groups
-    player_groups_file = os.path.join(data_dir, "player_groups.json")
-    player_groups = {}
-    if os.path.exists(player_groups_file):
-        with open(player_groups_file, "r", encoding="utf-8") as f:
-            player_groups = json.load(f)
-        print(f"Player Groups geladen: {player_groups.keys()}")
-    else:
-        print(f"WARNUNG: player_groups.json nicht gefunden in {player_groups_file}")
-    
-    # Erstelle eine Map von Spielern zu ihrer Gruppengröße
-    player_to_table_size = {}
-    for table_size, players in player_groups.items():
-        for player in players:
-            player_to_table_size[player] = table_size
-
-    # Lade die Dropouts
-    dropouts_file = os.path.join(data_dir, "dropouts.json")
-    dropouts = {}
-    if os.path.exists(dropouts_file):
-        with open(dropouts_file, "r", encoding="utf-8") as f:
-            dropouts = json.load(f)
-
-    # Lade die Matches für die angegebene Runde
-    round_file = os.path.join(rounds_dir, f"round_{round_number}.csv")
-    print(f"Versuche, Rundendatei zu laden: {round_file}")
-    
-    try:
-        if not os.path.exists(round_file):
-            print(f"FEHLER: Rundendatei existiert nicht: {round_file}")
-            return redirect(url_for("main.index", error=f"Runde {round_number} nicht gefunden"))
-        
-        matches = []
-        
-        with open(round_file, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            fieldnames = reader.fieldnames
-            print(f"CSV-Header: {fieldnames}")
-            
-            # Prüfe, ob alle benötigten Felder vorhanden sind
-            required_fields = ['table', 'player1', 'player2', 'score1', 'score2', 'table_size']
-            for field in required_fields:
-                if field not in fieldnames:
-                    print(f"WARNUNG: Wichtiges Feld '{field}' fehlt in der CSV-Datei")
-            
-            for row in reader:
-                # Konvertiere die Zeilen in ein Dictionary, wenn es eine einfache Zeile ist
-                match_data = row
-                if isinstance(row, list) and len(row) >= 5:
-                    match_data = {
-                        "table": row[0],
-                        "player1": row[1],
-                        "player2": row[2],
-                        "score1": row[3] if row[3] else "0",
-                        "score2": row[4] if row[4] else "0",
-                        "score_draws": row[5] if len(row) > 5 and row[5] else "0",
-                        "table_size": row[6] if len(row) > 6 else "6"
-                    }
-                
-                # Stelle sicher, dass alle Werte als Strings vorliegen und leere Werte einen Standardwert haben
-                for key, value in match_data.items():
-                    if value is None:
-                        match_data[key] = ""
-                    else:
-                        match_data[key] = str(value)
-                
-                # Stelle sicher, dass table_size gesetzt ist und als String vorliegt
-                if 'table_size' not in match_data or not match_data['table_size']:
-                    # Versuche, die table_size aus player_to_table_size zu ermitteln
-                    player1 = match_data.get('player1', '')
-                    player2 = match_data.get('player2', '')
-                    if player1 in player_to_table_size:
-                        match_data['table_size'] = str(player_to_table_size[player1])
-                    elif player2 != "BYE" and player2 in player_to_table_size:
-                        match_data['table_size'] = str(player_to_table_size[player2])
-                    else:
-                        # Standardwert als Fallback
-                        match_data['table_size'] = "6"
-                    print(f"table_size für Match {match_data.get('table', '')} auf {match_data['table_size']} gesetzt")
-                
-                # Stelle sicher, dass alle erforderlichen Felder vorhanden sind
-                if 'dropout1' not in match_data:
-                    match_data['dropout1'] = 'false'
-                if 'dropout2' not in match_data:
-                    match_data['dropout2'] = 'false'
-                if 'score_draws' not in match_data:
-                    match_data['score_draws'] = '0'
-                
-                # Überprüfe auf display_player Felder und aktualisiere wenn nötig
-                if 'display_player1' not in match_data or not match_data['display_player1']:
-                    # Wenn das Feld nicht vorhanden ist, generiere es neu
-                    match_data['display_player1'] = get_display_name(match_data['player1'])
-                if 'display_player2' not in match_data or not match_data['display_player2']:
-                    match_data['display_player2'] = get_display_name(match_data['player2'])
-                
-                # Stelle sicher, dass die 🦵-Markierung sichtbar bleibt
-                if is_player_marked(match_data['player1']):
-                    match_data['display_player1'] = get_display_name(match_data['player1'])
-                    print(f"show_round: Setze display_player1 für {match_data['player1']} auf {match_data['display_player1']}")
-                if is_player_marked(match_data['player2']) and match_data['player2'] != "BYE":
-                    match_data['display_player2'] = get_display_name(match_data['player2'])
-                    print(f"show_round: Setze display_player2 für {match_data['player2']} auf {match_data['display_player2']}")
-                elif match_data['player2'] == "BYE":
-                    match_data['display_player2'] = "BYE"
-                
-                # Extrahiere und konvertiere Scores
-                try:
-                    score1 = int(match_data['score1']) if match_data['score1'] else 0
-                    score2 = int(match_data['score2']) if match_data['score2'] else 0
-                    score_draws = int(match_data['score_draws']) if match_data.get('score_draws', '') else 0
-                except ValueError:
-                    print(f"WARNUNG: Ungültige Scores für Match {match_data.get('table', '')}: {match_data.get('score1', '')}-{match_data.get('score2', '')}-{match_data.get('score_draws', '')}")
-                    score1 = 0
-                    score2 = 0
-                    score_draws = 0
-                
-                match_data['score1'] = str(score1)
-                match_data['score2'] = str(score2)
-                match_data['score_draws'] = str(score_draws)
-                
-                # Überprüfe auf Drop-Outs
-                dropout1 = match_data.get('dropout1') == 'true'
-                dropout2 = match_data.get('dropout2') == 'true'
-                if dropouts and str(round_number) in dropouts:
-                    dropout1 = dropout1 or match_data['player1'] in dropouts[str(round_number)]
-                    dropout2 = dropout2 or match_data['player2'] in dropouts[str(round_number)]
-                
-                # Aktualisiere dropout-Flags
-                match_data['dropout1'] = 'true' if dropout1 else 'false'
-                match_data['dropout2'] = 'true' if dropout2 else 'false'
-                
-                # Erstelle das Match-Objekt (verwende direkt das Dictionary)
-                matches.append(match_data)
-                print(f"Match geladen: Tisch {match_data['table']}, {match_data['player1']} vs {match_data['player2']}, Ergebnis: {match_data['score1']}-{match_data['score2']}-{match_data['score_draws']}, Größe: {match_data['table_size']}")
-        
-        print(f"Insgesamt {len(matches)} Matches geladen")
-        
-        # Gruppiere Matches nach Tischgrösse für Debugging
-        table_sizes = {}
-        for match in matches:
-            size = match['table_size']
-            if size not in table_sizes:
-                table_sizes[size] = []
-            table_sizes[size].append(match)
-        
-        for size, matches_in_size in table_sizes.items():
-            print(f"Tischgrösse {size}: {len(matches_in_size)} Matches")
-        
-        # Berechne den aktuellen Leaderboard
-        leaderboard = calculate_leaderboard(tournament_id, round_number)
-        print(f"Leaderboard Länge: {len(leaderboard)}")
-        if leaderboard:
-            print(f"Erste drei Einträge: {leaderboard[:min(3, len(leaderboard))]}")
-        
-        # Ermittle die Gesamtzahl der Runden
-        total_rounds = 0
-        for file in os.listdir(rounds_dir):
-            if file.startswith("round_") and file.endswith(".csv"):
-                round_num = int(file.split("_")[1].split(".")[0])
+    if os.path.exists(rounds_dir):
+        for filename in os.listdir(rounds_dir):
+            if filename.startswith("round_") and filename.endswith(".csv"):
+                round_num = int(filename.strip("round_").strip(".csv"))
                 total_rounds = max(total_rounds, round_num)
-        
-        print(f"Template wird gerendert mit: current_round={round_number}, {len(matches)} Matches, {len(leaderboard)} Spieler im Leaderboard")
-        return render_template(
-            "pair.html",
-            current_round=round_number,
-            matches=matches,
-            leaderboard=leaderboard,
-            marked=session.get("leg_players_set", []),
-            player_groups=player_groups,
-            total_rounds=total_rounds,
-            is_player_marked=is_player_marked,
-            tournament_ended=tournament_ended
-        )
     
-    except Exception as e:
-        import traceback
-        print(f"Fehler in show_round: {e}")
-        print(traceback.format_exc())
-        return redirect(url_for("main.index", error=f"Fehler beim Laden der Runde {round_number}: {str(e)}"))
+    # Lade die aktuellen Rundendaten
+    matches = []
+    with open(round_file, 'r', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            # Setze Standardwerte für Felder, falls sie nicht existieren
+            if 'player1' not in row or 'player2' not in row:
+                continue
+            
+            # Transformiere Rohdaten in ein passendes Format für unser Template
+            match = {
+                'player1': row['player1'],
+                'player2': row['player2'],
+                'table': row.get('table', ''),
+                'score1': row.get('score1', '0'),
+                'score2': row.get('score2', '0'),
+                'score_draws': row.get('score_draws', '0'),
+                'dropout1': row.get('dropout1', 'false'),
+                'dropout2': row.get('dropout2', 'false'),
+                'table_size': row.get('table_size', ''),
+                'group_key': row.get('group_key', row.get('table_size', '')),
+                'display_player1': row['player1'],
+                'display_player2': row['player2'],
+            }
+            
+            # Füge 🦵-Symbol für markierte Spieler hinzu
+            if row.get('dropout1', 'false') == 'true' and '🦵' not in match['display_player1']:
+                match['display_player1'] += ' 🦵'
+            if row.get('dropout2', 'false') == 'true' and '🦵' not in match['display_player2']:
+                match['display_player2'] += ' 🦵'
+                
+            matches.append(match)
+    
+    # Lade das Leaderboard für das Turnier bis zu dieser Runde
+    leaderboard = calculate_leaderboard(tournament_id, round_number)
+    
+    # Prüfe, ob das Turnier beendet ist - zweifache Prüfung für Konsistenz
+    tournament_ended = check_tournament_status(tournament_id)
+    
+    # Lade Spielerdaten für Power Nine
+    from .player_stats import POWER_NINE
+    
+    # Lade die turnierspezifischen Power Nine Daten anstelle der globalen Daten
+    all_players_data = {}
+    tournament_power_nine = get_tournament_power_nine(tournament_id)
+    
+    # Erstelle ein Dictionary mit den Spielerdaten für das Template
+    for match in matches:
+        player1 = match['player1']
+        player2 = match['player2']
+        
+        # Füge Spieler 1 hinzu, falls noch nicht vorhanden
+        if player1 not in all_players_data:
+            all_players_data[player1] = {
+                'power_nine': tournament_power_nine.get(player1, {})
+            }
+            # Stelle sicher, dass alle Power Nine Karten vorhanden sind
+            for card in POWER_NINE:
+                if card not in all_players_data[player1]['power_nine']:
+                    all_players_data[player1]['power_nine'][card] = False
+        
+        # Füge Spieler 2 hinzu, falls noch nicht vorhanden und kein BYE
+        if player2 != "BYE" and player2 not in all_players_data:
+            all_players_data[player2] = {
+                'power_nine': tournament_power_nine.get(player2, {})
+            }
+            # Stelle sicher, dass alle Power Nine Karten vorhanden sind
+            for card in POWER_NINE:
+                if card not in all_players_data[player2]['power_nine']:
+                    all_players_data[player2]['power_nine'][card] = False
+    
+    return render_template(
+        'pair.html',
+        tournament_id=tournament_id,
+        matches=matches,
+        current_round=round_number,
+        total_rounds=total_rounds,
+        leaderboard=leaderboard,
+        tournament_ended=tournament_ended,
+        all_players_data=all_players_data
+    )
 
 def calculate_opponents_match_percentage(player, stats):
     """Berechnet den OMW% (Opponents Match Win Percentage) für einen Spieler."""
@@ -1314,7 +1287,7 @@ def calculate_leaderboard(tournament_id, up_to_round):
         if os.path.exists(round_file):
             print(f"Verarbeite Runde {round_num}")
             try:
-                with open(round_file, "r") as f:
+                with open(round_file, "r", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
                     for match in reader:
                         player1 = match["player1"]
@@ -1341,8 +1314,12 @@ def calculate_leaderboard(tournament_id, up_to_round):
                         print(f"  Match: {player1} vs {player2}, Ergebnis: {score1}-{score2}-{score_draws}")
                         
                         # Aktualisiere die Gegner-Listen
-                        stats[player1]['opponents'].append(player2)
-                        stats[player2]['opponents'].append(player1)
+                        if player2 != "BYE":
+                            stats[player1]['opponents'].append(player2)
+                            stats[player2]['opponents'].append(player1)
+                        else:
+                            # Bei BYE nur für Spieler 1 einen Gegner hinzufügen
+                            stats[player1]['opponents'].append(player2)
                         
                         # Aktualisiere die Statistiken für beide Spieler
                         if score1 > score2:
@@ -1449,12 +1426,16 @@ def players_list():
     # Bereite die Spielerdaten für die Anzeige vor
     players_data = {}
     for player in all_players:
+        # Überspringe gelöschte Spieler
+        if player == "DELETED_PLAYER":
+            continue
+            
         # Lade Spielerdaten und Statistiken
         player_data = load_player_data(player)
         player_stats = get_player_statistics(player)
         
-        # Zähle Power Nine Karten
-        power_nine_count = sum(1 for card, has_card in player_data.get("power_nine", {}).items() if has_card)
+        # Verwende die neue Gesamtzahl der Power Nine Karten aus den Statistiken
+        power_nine_count = player_stats.get("power_nine_total", 0)
         
         # Speichere strukturierte Daten für die Anzeige
         players_data[player] = {
@@ -1472,10 +1453,15 @@ def players_list():
 @main.route("/player/<player_name>")
 def player_profile(player_name):
     """Zeigt das Profil eines Spielers an"""
+    # Verhindere Zugriff auf gelöschte Spieler
+    if player_name == "DELETED_PLAYER":
+        flash("Dieser Spieler existiert nicht mehr.")
+        return redirect(url_for('main.players_list'))
+    
     # Importiere das player_stats Modul
     from .player_stats import load_player_data, get_player_statistics, POWER_NINE
     
-    # Lade Spielerdaten und Statistiken
+    # Lade Spielerdaten
     player_data = load_player_data(player_name)
     player_stats = get_player_statistics(player_name)
     
@@ -1487,20 +1473,186 @@ def player_profile(player_name):
         power_nine=POWER_NINE
     )
 
-@main.route("/player/<player_name>/update", methods=["POST"])
-def update_player(player_name):
-    """Aktualisiert die Daten für einen Spieler"""
+@main.route("/player/<player_name>/delete", methods=["POST"])
+def delete_player(player_name):
+    """Löscht einen Spieler aus allen Daten"""
+    # Importiere das player_stats Modul
+    from .player_stats import delete_player, get_players_data_path, load_all_players_data
+    
+    # Debug-Logs
+    print(f"Versuche Spieler '{player_name}' aus allen Daten zu löschen")
+    print(f"Spielerdaten-Datei: {get_players_data_path()}")
+    players_data = load_all_players_data()
+    print(f"Vorhandene Spieler in players_data.json: {list(players_data.keys())}")
+    
+    # Lösche den Spieler aus allen Daten
+    success = delete_player(player_name)
+    
+    if success:
+        # Zeige Erfolgsmeldung an
+        return jsonify({"success": True, "message": f"Spieler {player_name} wurde erfolgreich aus allen Daten entfernt"})
+    else:
+        # Zeige Fehlermeldung an
+        return jsonify({"success": False, "message": f"Es gab ein Problem beim Löschen des Spielers {player_name}. Bitte überprüfen Sie die Logs."})
+
+@main.route("/api/player/<player_name>/power_nine", methods=["GET"])
+def get_player_power_nine(player_name):
+    """API-Route zum Abrufen der Power Nine Karten eines Spielers im aktuellen Turnier"""
+    # Importiere die POWER_NINE-Konstante
+    from .player_stats import POWER_NINE
+    
+    # Hole die aktuelle Turnier-ID aus der Session
+    tournament_id = session.get("tournament_id")
+    if not tournament_id:
+        # Wenn kein Turnier aktiv ist, gib leere Power Nine Daten zurück
+        return jsonify({
+            "success": True,
+            "player_name": player_name,
+            "power_nine": {card: False for card in POWER_NINE}
+        })
+    
+    # Lade die turnierspezifischen Power Nine Daten
+    tournament_power_nine = get_tournament_power_nine(tournament_id)
+    
+    # Hole die Power Nine Daten für den Spieler im aktuellen Turnier
+    # oder gib ein leeres Dictionary zurück, wenn keine Daten vorhanden sind
+    power_nine = tournament_power_nine.get(player_name, {})
+    
+    # Stelle sicher, dass alle Power Nine Karten im Dictionary enthalten sind
+    for card in POWER_NINE:
+        if card not in power_nine:
+            power_nine[card] = False
+    
+    return jsonify({
+        "success": True,
+        "player_name": player_name,
+        "power_nine": power_nine
+    })
+
+@main.route("/api/player/<player_name>/power_nine", methods=["POST"])
+def update_player_power_nine_api(player_name):
+    """API-Route zum Aktualisieren der Power Nine Karten eines Spielers"""
     # Importiere das player_stats Modul
     from .player_stats import update_player_power_nine, POWER_NINE
     
-    # Sammle die Power Nine Daten aus dem Formular
-    power_nine_data = {}
-    for card in POWER_NINE:
-        card_field = f"power_nine_{card.replace(' ', '_')}"
-        power_nine_data[card] = card_field in request.form
+    # Hole die Power Nine Daten aus dem Request
+    power_nine_data = request.json
     
-    # Aktualisiere die Spielerdaten
-    update_player_power_nine(player_name, power_nine_data)
+    if not power_nine_data:
+        return jsonify({
+            "success": False,
+            "message": "Keine Power Nine Daten im Request."
+        })
     
-    # Leite zurück zum Spielerprofil
-    return redirect(url_for("main.player_profile", player_name=player_name))
+    # Hole die aktuelle Turnier-ID aus der Session
+    tournament_id = session.get("tournament_id")
+    if not tournament_id:
+        return jsonify({
+            "success": False,
+            "message": "Kein aktives Turnier gefunden."
+        })
+    
+    # Aktualisiere die Power Nine Daten für das aktuelle Turnier
+    success = update_tournament_power_nine(tournament_id, player_name, power_nine_data)
+    
+    if success:
+        # Aktualisiere auch die globalen Statistiken für den Spieler
+        # Dies addiert die Power Nine Karten zu den Gesamtstatistiken
+        update_player_power_nine(player_name, power_nine_data)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Power Nine Karten für {player_name} wurden aktualisiert."
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "message": f"Fehler beim Aktualisieren der Power Nine Karten für {player_name}."
+        })
+
+def update_tournament_power_nine(tournament_id, player_name, power_nine_data):
+    """
+    Aktualisiert die Power Nine Karten eines Spielers für ein bestimmtes Turnier.
+    Diese Funktion speichert die Daten in einer tournament_power_nine.json Datei
+    im Datenverzeichnis des Turniers.
+    """
+    try:
+        data_dir = os.path.join("data", tournament_id)
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+        
+        # Dateiname für die Power Nine Daten des Turniers
+        power_nine_file = os.path.join(data_dir, "tournament_power_nine.json")
+        
+        # Lade die bestehenden Daten oder erstelle ein neues Dictionary
+        tournament_power_nine = {}
+        if os.path.exists(power_nine_file):
+            with open(power_nine_file, 'r', encoding='utf-8') as f:
+                tournament_power_nine = json.load(f)
+        
+        # Aktualisiere die Daten für den Spieler
+        tournament_power_nine[player_name] = power_nine_data
+        
+        # Speichere die Daten zurück in die Datei
+        with open(power_nine_file, 'w', encoding='utf-8') as f:
+            json.dump(tournament_power_nine, f, indent=2)
+        
+        return True
+    except Exception as e:
+        print(f"Fehler beim Aktualisieren der Power Nine Daten für Turnier {tournament_id}, Spieler {player_name}: {e}")
+        return False
+
+def get_tournament_power_nine(tournament_id):
+    """
+    Holt die Power Nine Karten für alle Spieler in einem bestimmten Turnier.
+    """
+    try:
+        data_dir = os.path.join("data", tournament_id)
+        power_nine_file = os.path.join(data_dir, "tournament_power_nine.json")
+        
+        if os.path.exists(power_nine_file):
+            with open(power_nine_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        
+        # Wenn keine Datei existiert, gib ein leeres Dictionary zurück
+        return {}
+    except Exception as e:
+        print(f"Fehler beim Laden der Power Nine Daten für Turnier {tournament_id}: {e}")
+        return {}
+
+def check_tournament_status(tournament_id):
+    """
+    Überprüft konsistent den Status eines Turniers (beendet oder nicht).
+    
+    Diese Funktion führt eine zweifache Prüfung durch:
+    1. Prüft den Session-Status (session["tournament_ended"])
+    2. Prüft, ob die end_time.txt Datei existiert
+    
+    Bei Inkonsistenzen wird die Session aktualisiert.
+    
+    Args:
+        tournament_id: Die ID des zu prüfenden Turniers
+        
+    Returns:
+        bool: True wenn das Turnier beendet ist, False sonst
+    """
+    if not tournament_id:
+        return False
+    
+    # Prüfe Session-Variable
+    session_tournament_ended = session.get("tournament_ended", False)
+    
+    # Prüfe Datei
+    data_dir = os.path.join("data", tournament_id)
+    end_time_file = os.path.join(data_dir, "end_time.txt")
+    file_tournament_ended = os.path.exists(end_time_file)
+    
+    # Verwende BEIDE Statusprüfungen - wenn EINER True ist, ist das Turnier beendet
+    tournament_ended = session_tournament_ended or file_tournament_ended
+    
+    # Stelle sicher, dass Session und Datei konsistent sind
+    if session_tournament_ended != file_tournament_ended:
+        session["tournament_ended"] = tournament_ended
+        print(f"Warnung: Inkonsistenter Turnierstatus korrigiert - Session: {session_tournament_ended}, Datei: {file_tournament_ended}, Final: {tournament_ended}")
+    
+    return tournament_ended

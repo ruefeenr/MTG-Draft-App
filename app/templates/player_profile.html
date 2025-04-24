@@ -151,6 +151,14 @@
 
         .navigation {
             margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
         }
 
         .nav-button {
@@ -162,12 +170,33 @@
             text-decoration: none;
             font-weight: 500;
             transition: all 0.3s ease;
-            margin-right: 10px;
         }
 
         .nav-button:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .delete-button {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--danger-color) 0%, #c0392b 100%);
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 40px;
+            font-size: 1.2em;
+            font-weight: bold;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .delete-button:hover {
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 0 4px 8px rgba(231, 76, 60, 0.3);
         }
 
         .match-history {
@@ -225,24 +254,231 @@
             font-size: 0.5em;
             text-transform: uppercase;
         }
+        
+        /* Neue Stile für die Badge-Container */
+        .player-summary {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        
+        .badge-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .power-nine-badge {
+            display: flex;
+            align-items: center;
+            background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            min-width: 160px;
+        }
+        
+        .power-nine-badge.empty {
+            background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);
+            opacity: 0.8;
+        }
+        
+        .badge-icon {
+            font-size: 1.8em;
+            margin-right: 10px;
+        }
+        
+        .badge-content {
+            flex: 1;
+        }
+        
+        .badge-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            line-height: 1.2;
+        }
+        
+        .badge-label {
+            font-size: 0.8em;
+            opacity: 0.9;
+        }
+        
+        /* Stil für den Bestätigungsdialog */
+        .confirmation-dialog {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .dialog-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 450px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            text-align: center;
+        }
+        
+        .dialog-title {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+            color: var(--dark-color);
+        }
+        
+        .dialog-message {
+            margin-bottom: 25px;
+            color: #666;
+            line-height: 1.5;
+        }
+        
+        .dialog-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        .btn-dialog {
+            padding: 10px 25px;
+            border-radius: 6px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+        }
+        
+        .btn-cancel {
+            background-color: #f1f1f1;
+            color: #666;
+        }
+        
+        .btn-cancel:hover {
+            background-color: #e5e5e5;
+        }
+        
+        .btn-delete {
+            background: linear-gradient(135deg, var(--danger-color) 0%, #c0392b 100%);
+            color: white;
+        }
+        
+        .btn-delete:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(231, 76, 60, 0.3);
+        }
+        
+        /* Animationen für Dialog */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .show-dialog {
+            display: flex;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .dialog-input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 2px solid rgba(74, 144, 226, 0.2);
+            border-radius: 8px;
+            font-size: 1em;
+        }
+        
+        .dialog-input:focus {
+            border-color: var(--primary-color);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+        }
+        
+        .warning-message {
+            background-color: rgba(231, 76, 60, 0.1);
+            border-left: 4px solid var(--danger-color);
+            padding: 10px 15px;
+            margin-bottom: 15px;
+            color: #c0392b;
+            text-align: left;
+            font-size: 0.9em;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
     <div class="navigation">
-        <a href="{{ url_for('main.players_list') }}" class="nav-button">← Zurück zur Spielerliste</a>
-        <a href="{{ url_for('main.index') }}" class="nav-button">Zur Startseite</a>
+        <div class="nav-buttons">
+            <a href="{{ url_for('main.players_list') }}" class="nav-button">← Zurück zur Spielerliste</a>
+            <a href="{{ url_for('main.index') }}" class="nav-button">Zur Startseite</a>
+        </div>
+        <div class="delete-button" onclick="showDeleteConfirmation('{{ player_name }}')">✖</div>
     </div>
 
     <div class="profile-header">
         <h1>{{ player_name }}</h1>
         
-        {% set power_nine_count = player_data.power_nine.values() | sum %}
-        {% if power_nine_count > 0 %}
-            <div class="power-nine-count">
-                {{ power_nine_count }}<br>
-                <small>P9</small>
+        <div class="player-summary">
+            {% if player_stats.power_nine_total > 0 %}
+            <div class="badge-container">
+                <div class="power-nine-badge">
+                    <div class="badge-icon">🏆</div>
+                    <div class="badge-content">
+                        <div class="badge-value">{{ player_stats.power_nine_total }}</div>
+                        <div class="badge-label">Power Nine</div>
+                    </div>
+                </div>
+                
+                <div class="power-nine-badge">
+                    <div class="badge-icon">🏅</div>
+                    <div class="badge-content">
+                        <div class="badge-value">{{ player_stats.match_win_percentage }}%</div>
+                        <div class="badge-label">Gewinnrate</div>
+                    </div>
+                </div>
+                
+                <div class="power-nine-badge">
+                    <div class="badge-icon">🎮</div>
+                    <div class="badge-content">
+                        <div class="badge-value">{{ player_stats.tournaments_played }}</div>
+                        <div class="badge-label">Turniere</div>
+                    </div>
+                </div>
             </div>
-        {% endif %}
+            {% else %}
+            <div class="badge-container">
+                <div class="power-nine-badge empty">
+                    <div class="badge-icon">🎴</div>
+                    <div class="badge-content">
+                        <div class="badge-label">Noch keine Power Nine Karten</div>
+                    </div>
+                </div>
+                
+                <div class="power-nine-badge">
+                    <div class="badge-icon">🏅</div>
+                    <div class="badge-content">
+                        <div class="badge-value">{{ player_stats.match_win_percentage }}%</div>
+                        <div class="badge-label">Gewinnrate</div>
+                    </div>
+                </div>
+                
+                <div class="power-nine-badge">
+                    <div class="badge-icon">🎮</div>
+                    <div class="badge-content">
+                        <div class="badge-value">{{ player_stats.tournaments_played }}</div>
+                        <div class="badge-label">Turniere</div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
     </div>
 
     <div class="profile-content">
@@ -302,25 +538,118 @@
             </div>
         </div>
 
-        <div class="power-nine-card">
-            <div class="card-title">Power Nine Karten</div>
+        <div class="stats-card">
+            <div class="card-title">Power Nine Statistik</div>
             
-            <form method="POST" action="{{ url_for('main.update_player', player_name=player_name) }}">
-                <div class="power-nine-grid">
-                    {% for card in power_nine %}
-                        <div class="card-item">
-                            <div class="card-item-title">{{ card }}</div>
-                            <div class="card-checkbox">
-                                <input type="checkbox" name="power_nine_{{ card|replace(' ', '_') }}" id="card_{{ card|replace(' ', '_') }}" 
-                                       {% if player_data.power_nine.get(card, False) %}checked{% endif %}>
-                            </div>
-                        </div>
-                    {% endfor %}
+            <div class="stat-grid">
+                <div class="stat-item">
+                    <div class="stat-value">{{ player_stats.power_nine_total }}</div>
+                    <div class="stat-label">Gezogene Power Nine Karten</div>
                 </div>
                 
-                <button type="submit" class="save-button">Änderungen speichern</button>
-            </form>
+                <div class="stat-item">
+                    <div class="stat-value">{{ (player_stats.power_nine_total / player_stats.tournaments_played)|round(2) if player_stats.tournaments_played > 0 else 0 }}</div>
+                    <div class="stat-label">Power Nine Karten pro Turnier</div>
+                </div>
+            </div>
+            
+            <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px; text-align: center;">
+                <p style="margin-bottom: 0; color: #6c757d;">Power Nine Karten werden während der Turniere zugewiesen. 
+                Hier siehst du eine Zusammenfassung aller Karten, die du in bisherigen Turnieren erhalten hast.</p>
+            </div>
         </div>
     </div>
+    
+    <!-- Bestätigungsdialog -->
+    <div id="deleteConfirmationDialog" class="confirmation-dialog">
+        <div class="dialog-content">
+            <div class="dialog-title">Spieler löschen</div>
+            <div class="dialog-message">
+                Möchtest du den Spieler <strong><span id="playerToDeleteName"></span></strong> wirklich löschen?
+                <div class="warning-message">
+                    <p><strong>Achtung:</strong> Diese Aktion kann nicht rückgängig gemacht werden!</p>
+                    <p>Alle Spielerdaten einschließlich Power Nine Informationen werden permanent gelöscht.</p>
+                    <p>Die Turnierhistorie bleibt erhalten, aber dieser Spieler wird nicht mehr in der Spielerliste erscheinen.</p>
+                </div>
+                <p>Bitte gib den Namen des Spielers ein, um den Löschvorgang zu bestätigen:</p>
+                <input type="text" id="confirmPlayerName" class="dialog-input" placeholder="Spielername zur Bestätigung">
+            </div>
+            <div class="dialog-buttons">
+                <button type="button" class="btn-dialog btn-cancel" onclick="hideDeleteConfirmation()">Abbrechen</button>
+                <button type="button" class="btn-dialog btn-delete" id="confirmDeleteBtn" disabled>Spieler löschen</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let playerToDelete = null;
+        
+        function showDeleteConfirmation(playerName) {
+            // Setze den Spielernamen für das Löschen
+            playerToDelete = playerName;
+            
+            // Setze den Namen im Dialog
+            document.getElementById('playerToDeleteName').textContent = playerName;
+            
+            // Zurücksetzen des Eingabefelds
+            const confirmInput = document.getElementById('confirmPlayerName');
+            confirmInput.value = '';
+            document.getElementById('confirmDeleteBtn').disabled = true;
+            
+            // Überwache das Eingabefeld
+            confirmInput.addEventListener('input', validatePlayerNameInput);
+            
+            // Konfiguriere den Bestätigungs-Button
+            document.getElementById('confirmDeleteBtn').onclick = function() {
+                deletePlayer(playerName);
+            };
+            
+            // Zeige den Dialog an
+            document.getElementById('deleteConfirmationDialog').classList.add('show-dialog');
+        }
+        
+        function validatePlayerNameInput() {
+            const input = document.getElementById('confirmPlayerName').value;
+            const deleteBtn = document.getElementById('confirmDeleteBtn');
+            
+            // Aktiviere den Löschbutton nur, wenn der eingegebene Name exakt übereinstimmt
+            deleteBtn.disabled = input !== playerToDelete;
+        }
+        
+        function hideDeleteConfirmation() {
+            document.getElementById('deleteConfirmationDialog').classList.remove('show-dialog');
+            playerToDelete = null;
+            
+            // Entferne den Event-Listener
+            document.getElementById('confirmPlayerName').removeEventListener('input', validatePlayerNameInput);
+        }
+        
+        function deletePlayer(playerName) {
+            // API-Aufruf zum Löschen des Spielers
+            fetch(`/player/${encodeURIComponent(playerName)}/delete`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Erfolgreich gelöscht - zur Spielerliste weiterleiten
+                    alert("Der Spieler wurde erfolgreich gelöscht.");
+                    window.location.href = "{{ url_for('main.players_list') }}";
+                } else {
+                    // Fehler beim Löschen
+                    alert("Fehler beim Löschen des Spielers: " + data.message);
+                    hideDeleteConfirmation();
+                }
+            })
+            .catch(error => {
+                console.error('Fehler beim Löschen:', error);
+                alert("Ein Fehler ist aufgetreten. Bitte versuche es später erneut.");
+                hideDeleteConfirmation();
+            });
+        }
+    </script>
 </body>
 </html> 

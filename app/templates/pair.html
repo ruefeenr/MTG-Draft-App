@@ -865,25 +865,139 @@
         /* Verbessere den Stil für Fehlermeldungen, um besser sichtbar zu sein */
         .error-message-box {
             display: none;
-            background-color: rgba(231, 76, 60, 0.15);
-            border-left: 4px solid var(--danger-color);
-            color: var(--danger-color);
+            background-color: #f8d7da;
+            border-left: 4px solid #721c24;
+            color: #721c24;
             padding: 15px;
             margin: 15px 0;
-            border-radius: 4px;
+            border-radius: 6px;
             font-weight: 600;
             text-align: center;
-            animation: fadeIn 0.3s ease;
         }
         
-        /* Animation zum Hervorheben der Fehlermeldung - mit fester Farbe statt dynamischer Transparenz */
+        /* Animation zum Hervorheben der Fehlermeldung */
         @keyframes highlightError {
-            0%, 100% { background-color: #fadbd8; }
+            0%, 100% { background-color: #f8d7da; }
             50% { background-color: #f5b7b1; }
         }
         
         .error-highlight {
             animation: highlightError 1s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        /* Power Nine Styles */
+        .power-nine-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+        
+        .power-nine-card {
+            background: var(--light-color);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .power-nine-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .power-nine-card.selected {
+            border-color: var(--primary-color);
+            background-color: rgba(74, 144, 226, 0.1);
+        }
+        
+        .power-nine-card-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        
+        .power-nine-owner {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 4px;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            font-size: 0.8em;
+            text-align: center;
+        }
+        
+        .power-nine-badge {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7em;
+            font-weight: bold;
+        }
+
+        /* Alert-Meldungen für Hinweise und Fehlermeldungen */
+        .alert {
+            color: #721c24;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+        
+        .alert strong {
+            font-weight: 600;
+        }
+        
+        /* Verbesserte Fehlermeldung im Modal */
+        .error-message-box {
+            display: none;
+            color: #721c24;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-left: 4px solid #721c24;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        
+        /* Animation zum Hervorheben der Fehlermeldung */
+        @keyframes highlightError {
+            0%, 100% { background-color: #f8d7da; }
+            50% { background-color: #f5b7b1; }
+        }
+        
+        .error-highlight {
+            animation: highlightError 1s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        /* Spezifischere Regel für die Modal-Fehlermeldung */
+        .error-message-box-modal {
+            color: #721c24 !important;
+            background-color: #f8d7da !important;
+            border: 1px solid #f5c6cb !important;
+            border-left: 4px solid #721c24 !important;
+            border-radius: 6px !important;
+            padding: 12px !important;
+            text-align: center !important;
         }
     </style>
     <script>
@@ -923,10 +1037,18 @@
 
         let timerInterval;
         let remainingSeconds = 0;
+        let timerEndTime = 0; // Neues Feld zur Speicherung der Endzeit
 
         function startTimer() {
             const minutes = parseInt(document.getElementById("timer-minutes").value) || 0;
             remainingSeconds = minutes * 60;
+            
+            // Timer-Endzeit berechnen und in localStorage speichern
+            timerEndTime = Date.now() + (remainingSeconds * 1000);
+            localStorage.setItem('timerEndTime', timerEndTime);
+            localStorage.setItem('timerMinutes', minutes);
+            localStorage.setItem('timerRunning', 'true');
+            
             updateTimerDisplay();
             clearInterval(timerInterval);
             
@@ -935,14 +1057,17 @@
             document.getElementById('timer-display').classList.remove('time-up');
             
             timerInterval = setInterval(() => {
+                // Berechne verbleibende Zeit basierend auf Endzeit
+                remainingSeconds = Math.max(0, Math.floor((timerEndTime - Date.now()) / 1000));
+                
                 if (remainingSeconds <= 0) {
                     clearInterval(timerInterval);
                     // Füge die time-up Klasse zum Timer-Bereich hinzu
                     document.querySelector('.timer-section').classList.add('time-up');
                     document.getElementById('timer-display').classList.add('time-up');
+                    localStorage.setItem('timerRunning', 'false');
                     return;
                 }
-                remainingSeconds--;
                 updateTimerDisplay();
             }, 1000);
         }
@@ -950,6 +1075,13 @@
         function resetTimer() {
             clearInterval(timerInterval);
             remainingSeconds = 0;
+            timerEndTime = 0;
+            
+            // Timer-Daten aus dem localStorage entfernen
+            localStorage.removeItem('timerEndTime');
+            localStorage.removeItem('timerMinutes');
+            localStorage.removeItem('timerRunning');
+            
             updateTimerDisplay(true);
             // Entferne die time-up Klasse vom Timer-Bereich
             document.querySelector('.timer-section').classList.remove('time-up');
@@ -966,6 +1098,49 @@
             const sec = Math.max(0, remainingSeconds) % 60;
             display.textContent = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
         }
+
+        // Timer-Status beim Laden der Seite wiederherstellen
+        document.addEventListener('DOMContentLoaded', function() {
+            // ... existing code ...
+            
+            // Timer wiederherstellen, wenn er läuft
+            if (localStorage.getItem('timerRunning') === 'true') {
+                const storedEndTime = localStorage.getItem('timerEndTime');
+                if (storedEndTime) {
+                    timerEndTime = parseInt(storedEndTime);
+                    const remainingTime = Math.max(0, Math.floor((timerEndTime - Date.now()) / 1000));
+                    
+                    if (remainingTime > 0) {
+                        // Timer läuft noch, also starten wir ihn wieder
+                        remainingSeconds = remainingTime;
+                        // Setze die Minuten auf den gespeicherten Wert
+                        const storedMinutes = localStorage.getItem('timerMinutes');
+                        if (storedMinutes) {
+                            document.getElementById("timer-minutes").value = storedMinutes;
+                        }
+                        // Timer starten, ohne einen neuen Timer zu setzen
+                        updateTimerDisplay();
+                        timerInterval = setInterval(() => {
+                            remainingSeconds = Math.max(0, Math.floor((timerEndTime - Date.now()) / 1000));
+                            if (remainingSeconds <= 0) {
+                                clearInterval(timerInterval);
+                                document.querySelector('.timer-section').classList.add('time-up');
+                                document.getElementById('timer-display').classList.add('time-up');
+                                localStorage.setItem('timerRunning', 'false');
+                                return;
+                            }
+                            updateTimerDisplay();
+                        }, 1000);
+                    } else {
+                        // Timer ist abgelaufen
+                        document.querySelector('.timer-section').classList.add('time-up');
+                        document.getElementById('timer-display').classList.add('time-up');
+                        updateTimerDisplay();
+                        localStorage.setItem('timerRunning', 'false');
+                    }
+                }
+            }
+        });
 
         function selectScore(button, inputId) {
             // Entferne die selected-Klasse von allen Buttons in der gleichen Gruppe
@@ -1190,22 +1365,78 @@
         }
         
         // Funktion zum Aktualisieren des Match-Resultats in der Tabelle
-        function updateMatchResult(table, score1, score2) {
-            // Finde die Zeile mit dem entsprechenden Tisch
-            const rows = document.querySelectorAll('table.leaderboard tr');
-            for (let i = 0; i < rows.length; i++) {
-                const row = rows[i];
-                const resultCell = row.querySelector('td:nth-child(3)');
-                if (resultCell) {
-                    // Überprüfe, ob diese Zeile zum richtigen Tisch gehört
-                    const resultButton = row.querySelector('button');
-                    if (resultButton && resultButton.getAttribute('onclick').includes(`'${table}'`)) {
-                        // Aktualisiere das Ergebnis
-                        resultCell.textContent = `${score1} - ${score2}`;
-                        break;
-                    }
-                }
+        function updateMatchResult(table, score1, score2, score_draws, dropout1, dropout2) {
+            // Finde die Match-Karte mit der entsprechenden Tischnummer
+            const matchCard = document.querySelector(`.match-card[data-table="${table}"]`);
+            if (!matchCard) return;
+            
+            // Aktualisiere beide Spieler-Karten innerhalb des Match
+            const playerInfos = matchCard.querySelectorAll('.player-info');
+            if (playerInfos.length < 2) return;
+            
+            // Holen der Scores als Zahlen
+            const score1Int = parseInt(score1) || 0;
+            const score2Int = parseInt(score2) || 0;
+            
+            // Aktualisiere die Score-Anzeigen
+            const scoreElements = matchCard.querySelectorAll('.score');
+            if (scoreElements.length >= 2) {
+                scoreElements[0].textContent = score1;
+                scoreElements[1].textContent = score2;
             }
+            
+            // Entferne alle bisherigen Status-Klassen
+            playerInfos[0].classList.remove('winner', 'loser', 'draw', 'leg-marked');
+            playerInfos[1].classList.remove('winner', 'loser', 'draw', 'leg-marked');
+            
+            // Player 2 ist BYE?
+            const isPlayer2Bye = playerInfos[1].querySelector('.player-name')?.textContent === '🦵';
+            
+            // Setze die neuen Status-Klassen für Spieler 1
+            if (dropout1 === 'true') {
+                playerInfos[0].classList.add('leg-marked');
+            } else if (isPlayer2Bye) {
+                playerInfos[0].classList.add('winner');
+            } else if (score1Int > score2Int) {
+                playerInfos[0].classList.add('winner');
+            } else if (score1Int < score2Int) {
+                playerInfos[0].classList.add('loser');
+            } else if (score1Int > 0 && score1Int === score2Int) {
+                playerInfos[0].classList.add('draw');
+            }
+            
+            // Setze die neuen Status-Klassen für Spieler 2
+            if (isPlayer2Bye) {
+                playerInfos[1].classList.add('leg-marked');
+            } else if (dropout2 === 'true') {
+                playerInfos[1].classList.add('leg-marked');
+            } else if (score2Int > score1Int) {
+                playerInfos[1].classList.add('winner');
+            } else if (score2Int < score1Int) {
+                playerInfos[1].classList.add('loser');
+            } else if (score2Int > 0 && score1Int === score2Int) {
+                playerInfos[1].classList.add('draw');
+            }
+            
+            // Aktualisiere die Unentschieden-Anzeige
+            let drawIndicator = matchCard.querySelector('.draw-indicator');
+            const score_drawsInt = parseInt(score_draws) || 0;
+            
+            if (score_drawsInt > 0) {
+                if (!drawIndicator) {
+                    // Erstelle ein neues Draw-Indicator-Element wenn keines existiert
+                    drawIndicator = document.createElement('div');
+                    drawIndicator.className = 'draw-indicator';
+                    matchCard.querySelector('.match-content').appendChild(drawIndicator);
+                }
+                drawIndicator.textContent = `Draws: ${score_draws}`;
+                drawIndicator.style.display = 'block';
+            } else if (drawIndicator) {
+                // Verstecke den Draw-Indicator wenn keine Unentschieden
+                drawIndicator.style.display = 'none';
+            }
+            
+            console.log(`Match-Karte für Tisch ${table} aktualisiert: ${score1}-${score2}-${score_draws}`);
         }
         
         // Verbesserte Validierungsfunktion mit visueller Hervorhebung
@@ -1214,6 +1445,7 @@
             const score2 = parseInt(document.getElementById('modalScore2').value) || 0;
             const player2 = document.getElementById('modalPlayer2').value;
             const errorBox = document.getElementById('errorMessageBox');
+            const errorText = document.getElementById('errorMessageText');
             
             // Fehlermeldung zurücksetzen
             errorBox.style.display = "none";
@@ -1221,7 +1453,7 @@
             
             // Prüfe, ob beide Spieler 2 Siege haben
             if (score1 === 2 && score2 === 2) {
-                errorBox.textContent = "Ungültige Eingabe: Beide Spieler können nicht 2 Siege haben.";
+                errorText.textContent = "Beide Spieler können nicht 2 Siege haben.";
                 errorBox.style.display = "block";
                 errorBox.classList.add('error-highlight');
                 return false;
@@ -1229,7 +1461,7 @@
             
             // BYE-Matches haben immer das Ergebnis 2-0
             if (player2 === "BYE" && (score1 !== 2 || score2 !== 0)) {
-                errorBox.textContent = "BYE-Matches haben immer das Ergebnis 2-0.";
+                errorText.textContent = "BYE-Matches haben immer das Ergebnis 2-0.";
                 errorBox.style.display = "block";
                 errorBox.classList.add('error-highlight');
                 return false;
@@ -1243,29 +1475,75 @@
             const form = document.getElementById('resultForm');
             if (form) {
                 form.addEventListener('submit', function(event) {
+                    // Verhindere das Standard-Absenden des Formulars
+                    event.preventDefault();
+                    
                     // Validiere das Formular
                     if (!validateResultForm()) {
-                        event.preventDefault(); // Verhindere das Absenden des Formulars
                         console.log("Formularvalidierung fehlgeschlagen!");
                         return false;
                     }
+                    
+                    // Sammle alle Formulardaten
+                    const formData = new FormData(form);
                     
                     // Scrollposition speichern
                     localStorage.setItem('scrollPosition', window.scrollY.toString());
                     console.log("Scrollposition gespeichert:", window.scrollY);
                     
+                    // Hole alle wichtigen Werte
                     const table = document.getElementById('modalTable').value;
                     const score1 = document.getElementById('modalScore1').value;
                     const score2 = document.getElementById('modalScore2').value;
-                    
-                    // Aktualisiere das Ergebnis in der Tabelle
-                    updateMatchResult(table, score1, score2);
+                    const scoreDraws = document.getElementById('modalScoreDraws').value;
+                    const dropout1 = document.getElementById('modalDropout1').value;
+                    const dropout2 = document.getElementById('modalDropout2').value;
+                    const player1 = document.getElementById('modalPlayer1').value;
+                    const player2 = document.getElementById('modalPlayer2').value;
                     
                     // Schließe das Modal
                     closeResultModal();
                     
-                    // Formular wird normal abgesendet
-                    return true;
+                    // Aktualisiere das Ergebnis in der Tabelle direkt (sofortige visuelle Rückmeldung)
+                    updateMatchResult(table, score1, score2, scoreDraws, dropout1, dropout2);
+                    
+                    // Ajax-Anfrage statt normalen Formularversands
+                    fetch(form.action, {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(data => {
+                                throw new Error(data.message || 'Netzwerkantwort war nicht ok');
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Ergebnis erfolgreich gespeichert!', data);
+                        
+                        // Zeige eine kurze Erfolgsmeldung an
+                        showFloatingMessage('Ergebnis erfolgreich gespeichert');
+                        
+                        // Bei erfolgreicher Speicherung noch einmal die lokale UI aktualisieren
+                        updateMatchResult(table, score1, score2, scoreDraws, dropout1, dropout2);
+                        
+                        // Nach kurzer Verzögerung Seite neu laden, um sowohl Leaderboard als auch Power Nine Emojis zu aktualisieren
+                        setTimeout(() => {
+                            performFullReload();
+                        }, 100);
+                    })
+                    .catch(error => {
+                        console.error('Fehler beim Speichern des Ergebnisses:', error);
+                        let errorMessage = 'Fehler beim Speichern des Ergebnisses';
+                        if (error.message) {
+                            errorMessage += ': ' + error.message;
+                        }
+                        showFloatingMessage(errorMessage, true);
+                    });
+                    
+                    return false; // Stoppte die normale Formularverarbeitung
                 });
             }
         });
@@ -1280,6 +1558,281 @@
                 });
             });
         });
+
+        // Power Nine Funktionen
+        const POWER_NINE_CARDS = [
+            { name: "Black Lotus", emoji: "🌸" },
+            { name: "Ancestral Recall", emoji: "🌊" },
+            { name: "Time Walk", emoji: "⏱️" },
+            { name: "Mox Sapphire", emoji: "💎" },
+            { name: "Mox Jet", emoji: "⚫" },
+            { name: "Mox Ruby", emoji: "❤️" },
+            { name: "Mox Pearl", emoji: "⚪" },
+            { name: "Mox Emerald", emoji: "💚" },
+            { name: "Timetwister", emoji: "🌀" }
+        ];
+        
+        function openPowerNineModal() {
+            // Modal anzeigen
+            document.getElementById('powerNineModal').style.display = 'block';
+            
+            // Power Nine Karten generieren
+            generatePowerNineCards();
+            
+            // Beim Öffnen des Modals das Erfolgsfeld zurücksetzen
+            document.getElementById('powerNineSuccessMessage').style.display = 'none';
+        }
+        
+        function closePowerNineModal() {
+            document.getElementById('powerNineModal').style.display = 'none';
+        }
+        
+        function generatePowerNineCards() {
+            const cardsContainer = document.getElementById('powerNineCards');
+            cardsContainer.innerHTML = '';
+            
+            // Leere Select-Meldung
+            if (!document.getElementById('playerSelect').value) {
+                cardsContainer.innerHTML = '<p style="grid-column: 1 / -1; text-align: center; color: #666;">Bitte wählen Sie zuerst einen Spieler aus.</p>';
+                return;
+            }
+            
+            // Lade aktuelle Daten für den ausgewählten Spieler
+            fetchPlayerPowerNine(document.getElementById('playerSelect').value);
+        }
+        
+        async function fetchPlayerPowerNine(playerName) {
+            try {
+                const response = await fetch(`/api/player/${encodeURIComponent(playerName)}/power_nine`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderPowerNineCards(data.power_nine);
+                } else {
+                    console.error('Fehler beim Laden der Power Nine Daten:', data.message);
+                    document.getElementById('powerNineCards').innerHTML = 
+                        '<p style="grid-column: 1 / -1; text-align: center; color: #721c24;">Fehler beim Laden der Daten.</p>';
+                }
+            } catch (error) {
+                console.error('Fehler beim Laden der Power Nine Daten:', error);
+                document.getElementById('powerNineCards').innerHTML = 
+                    '<p style="grid-column: 1 / -1; text-align: center; color: #721c24;">Fehler beim Laden der Daten.</p>';
+            }
+        }
+        
+        function renderPowerNineCards(playerPowerNine) {
+            const cardsContainer = document.getElementById('powerNineCards');
+            cardsContainer.innerHTML = '';
+            
+            POWER_NINE_CARDS.forEach(card => {
+                const hasCard = playerPowerNine[card.name] || false;
+                
+                const cardElement = document.createElement('div');
+                cardElement.className = `power-nine-card ${hasCard ? 'selected' : ''}`;
+                cardElement.dataset.card = card.name;
+                cardElement.onclick = function() { togglePowerNineCard(this); };
+                
+                cardElement.innerHTML = `
+                    <div class="power-nine-card-title">${card.name}</div>
+                    <div style="font-size: 1.6em; margin: 8px 0;">${card.emoji}</div>
+                `;
+                
+                cardsContainer.appendChild(cardElement);
+            });
+        }
+        
+        function togglePowerNineCard(cardElement) {
+            // Umschalten der "selected" Klasse für die angeklickte Karte
+            cardElement.classList.toggle('selected');
+            
+            // Füge visuelles Feedback hinzu
+            if (cardElement.classList.contains('selected')) {
+                // Karte wurde ausgewählt
+                cardElement.style.transform = 'scale(1.05)';
+                setTimeout(() => {
+                    cardElement.style.transform = '';
+                }, 200);
+            } else {
+                // Karte wurde abgewählt
+                cardElement.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    cardElement.style.transform = '';
+                }, 200);
+            }
+        }
+        
+        async function savePowerNine() {
+            const playerName = document.getElementById('playerSelect').value;
+            if (!playerName) {
+                alert('Bitte wählen Sie zuerst einen Spieler aus.');
+                return;
+            }
+            
+            // Sammle ausgewählte Karten
+            const selectedCards = {};
+            POWER_NINE_CARDS.forEach(card => {
+                const cardElement = document.querySelector(`.power-nine-card[data-card="${card.name}"]`);
+                selectedCards[card.name] = cardElement && cardElement.classList.contains('selected');
+            });
+            
+            try {
+                const response = await fetch(`/api/player/${encodeURIComponent(playerName)}/power_nine`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(selectedCards),
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.message || 'Netzwerkantwort war nicht ok');
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Aktualisiere Match-Karten mit Power Nine Emojis
+                    updateMatchCardsWithPowerNine(playerName, selectedCards);
+                    
+                    // Schließe das Modal automatisch
+                    closePowerNineModal();
+                    
+                    // Zeige kurze Erfolgsmeldung als Toast/Popup
+                    showFloatingMessage('Power Nine Karten erfolgreich aktualisiert!');
+                    
+                    // Nach kurzer Verzögerung Seite neu laden, um alle Anzeigen korrekt zu aktualisieren
+                    setTimeout(() => {
+                        performFullReload();
+                    }, 100);
+                } else {
+                    alert('Fehler beim Speichern: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Fehler beim Speichern der Power Nine Daten:', error);
+                let errorMessage = 'Fehler beim Speichern der Daten';
+                if (error.message) {
+                    errorMessage += ': ' + error.message;
+                }
+                showFloatingMessage(errorMessage, true);
+            }
+        }
+        
+        // Hilfsfunktion für Erfolgsmeldung
+        function showFloatingMessage(message, isError = false) {
+            // Erstelle ein neues Element für die Meldung
+            const messageElement = document.createElement('div');
+            messageElement.className = 'floating-message';
+            messageElement.textContent = message;
+            messageElement.style.position = 'fixed';
+            messageElement.style.top = '20px';
+            messageElement.style.left = '50%';
+            messageElement.style.transform = 'translateX(-50%)';
+            messageElement.style.backgroundColor = isError ? '#f8d7da' : '#d4edda';
+            messageElement.style.color = isError ? '#721c24' : '#155724';
+            messageElement.style.padding = '12px 24px';
+            messageElement.style.borderRadius = '6px';
+            messageElement.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+            messageElement.style.zIndex = '9999';
+            messageElement.style.opacity = '0';
+            messageElement.style.transition = 'opacity 0.3s ease';
+            
+            // Füge das Element dem Body hinzu
+            document.body.appendChild(messageElement);
+            
+            // Fade-in
+            setTimeout(() => {
+                messageElement.style.opacity = '1';
+            }, 10);
+            
+            // Nach 3 Sekunden ausblenden und entfernen
+            setTimeout(() => {
+                messageElement.style.opacity = '0';
+                setTimeout(() => {
+                    document.body.removeChild(messageElement);
+                }, 300);
+            }, 3000);
+        }
+        
+        function updateMatchCardsWithPowerNine(playerName, powerNineData) {
+            // Iteriere über Match-Karten und aktualisiere Emojis
+            const playerNameElements = document.querySelectorAll('.player-name');
+            playerNameElements.forEach(element => {
+                const name = element.textContent.trim().replace(/\s🦵$/, '').replace(/\s[🌸🌊⏱️💎⚫❤️⚪💚🌀]/g, '');
+                if (name === playerName) {
+                    // Entferne bestehende Power Nine Emojis
+                    let displayName = name;
+                    if (element.querySelector('.leg-indicator')) {
+                        displayName += ' 🦵';
+                    }
+                    
+                    // Entferne alle bestehenden Power Nine Emojis
+                    const existingEmojis = element.querySelectorAll('.power-nine-emoji');
+                    existingEmojis.forEach(emoji => emoji.remove());
+                    
+                    // Setze den Namen ohne Emojis zurück
+                    element.innerHTML = displayName;
+                    
+                    // Füge neue Power Nine Emojis hinzu
+                    let hasAnyCard = false;
+                    for (const [cardName, hasCard] of Object.entries(powerNineData)) {
+                        if (hasCard) {
+                            hasAnyCard = true;
+                            const card = POWER_NINE_CARDS.find(c => c.name === cardName);
+                            if (card) {
+                                const emojiSpan = document.createElement('span');
+                                emojiSpan.className = 'power-nine-emoji';
+                                emojiSpan.textContent = ` ${card.emoji}`;
+                                emojiSpan.title = cardName;
+                                element.appendChild(emojiSpan);
+                            }
+                        }
+                    }
+                    
+                    console.log(`Aktualisiert Power Nine für ${playerName}: ${hasAnyCard ? 'Hat Karten' : 'Keine Karten'}`);
+                }
+            });
+        }
+        
+        // Event-Listener für den Player-Select im Power Nine Modal
+        document.addEventListener('DOMContentLoaded', function() {
+            const playerSelect = document.getElementById('playerSelect');
+            if (playerSelect) {
+                playerSelect.addEventListener('change', function() {
+                    generatePowerNineCards();
+                });
+            }
+        });
+        
+        // Scrollposition nach Reload wiederherstellen
+        window.addEventListener('load', function() {
+            const savedScrollPosition = localStorage.getItem('scrollAfterReload');
+            if (savedScrollPosition) {
+                setTimeout(function() {
+                    window.scrollTo(0, parseInt(savedScrollPosition));
+                    localStorage.removeItem('scrollAfterReload'); // Einmalig verwenden und dann löschen
+                }, 100);
+            }
+        });
+
+        // Hilfsfunktion für einen Vollständigen Reload
+        function performFullReload() {
+            try {
+                // Speichere die aktuelle Scroll-Position für nach dem Reload
+                const currentScrollPosition = window.scrollY;
+                localStorage.setItem('scrollAfterReload', currentScrollPosition.toString());
+                console.log("Scrollposition für Reload gespeichert:", currentScrollPosition);
+                
+                // Vollständigen Reload durchführen
+                console.log("Führe vollständigen Reload durch...");
+                // Wir erzwingen einen vollständigen Reload vom Server, nicht aus dem Cache
+                window.location.href = window.location.href + (window.location.href.includes('?') ? '&' : '?') + 'nocache=' + new Date().getTime();
+            } catch (err) {
+                console.error("Fehler beim Reload-Versuch:", err);
+                // Fallback bei Fehlern
+                window.location.reload(true);
+            }
+        }
     </script>
 </head>
 <body>
@@ -1301,7 +1854,7 @@
     <div class="control-buttons" style="margin: 20px 0; display: flex; justify-content: space-between; align-items: flex-start;">
         <div>
             {% if tournament_ended %}
-                <div class="alert" style="color: #721c24; background-color: #f8d7da; border-color: #f5c6cb; padding: 12px; border-radius: 6px; display: inline-block; margin-right: 20px;">
+                <div class="alert" style="display: inline-block; margin-right: 20px;">
                     <strong>Hinweis:</strong> Dieses Turnier wurde bereits beendet. Sie können die Rundenansicht weiterhin nutzen, aber keine Änderungen mehr vornehmen.
                 </div>
             {% else %}
@@ -1311,6 +1864,7 @@
             {% endif %}
         </div>
         <div style="display: flex; gap: 1em; margin-left: {% if tournament_ended %}20px{% else %}0{% endif %};">
+            <button type="button" onclick="openPowerNineModal()" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Power Nine hinzufügen</button>
             {% if not tournament_ended %}
                 <form method="POST" action="/end_tournament" style="display:inline;">
                     <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Turnier beenden</button>
@@ -1357,6 +1911,64 @@
                             {% set clean_player1 = (match.display_player1 or match.player1) | replace(" 🦵", "") %}
                             {% set clean_player2 = (match.display_player2 or match.player2) | replace(" 🦵", "") %}
                             
+                            <!-- Power Nine Emojis für Spieler -->
+                            {% set player1_p9 = all_players_data.get(match.player1, {}).get('power_nine', {}) %}
+                            {% set player2_p9 = all_players_data.get(match.player2, {}).get('power_nine', {}) %}
+                            {% set p9_emojis1 = [] %}
+                            {% set p9_emojis2 = [] %}
+                            
+                            {% if player1_p9 %}
+                                {% for card_name, has_card in player1_p9.items() %}
+                                    {% if has_card %}
+                                        {% if card_name == "Black Lotus" %}
+                                            {% set _ = p9_emojis1.append("🌸") %}
+                                        {% elif card_name == "Ancestral Recall" %}
+                                            {% set _ = p9_emojis1.append("🌊") %}
+                                        {% elif card_name == "Time Walk" %}
+                                            {% set _ = p9_emojis1.append("⏱️") %}
+                                        {% elif card_name == "Mox Sapphire" %}
+                                            {% set _ = p9_emojis1.append("💎") %}
+                                        {% elif card_name == "Mox Jet" %}
+                                            {% set _ = p9_emojis1.append("⚫") %}
+                                        {% elif card_name == "Mox Ruby" %}
+                                            {% set _ = p9_emojis1.append("❤️") %}
+                                        {% elif card_name == "Mox Pearl" %}
+                                            {% set _ = p9_emojis1.append("⚪") %}
+                                        {% elif card_name == "Mox Emerald" %}
+                                            {% set _ = p9_emojis1.append("💚") %}
+                                        {% elif card_name == "Timetwister" %}
+                                            {% set _ = p9_emojis1.append("🌀") %}
+                                        {% endif %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                            
+                            {% if player2_p9 %}
+                                {% for card_name, has_card in player2_p9.items() %}
+                                    {% if has_card %}
+                                        {% if card_name == "Black Lotus" %}
+                                            {% set _ = p9_emojis2.append("🌸") %}
+                                        {% elif card_name == "Ancestral Recall" %}
+                                            {% set _ = p9_emojis2.append("🌊") %}
+                                        {% elif card_name == "Time Walk" %}
+                                            {% set _ = p9_emojis2.append("⏱️") %}
+                                        {% elif card_name == "Mox Sapphire" %}
+                                            {% set _ = p9_emojis2.append("💎") %}
+                                        {% elif card_name == "Mox Jet" %}
+                                            {% set _ = p9_emojis2.append("⚫") %}
+                                        {% elif card_name == "Mox Ruby" %}
+                                            {% set _ = p9_emojis2.append("❤️") %}
+                                        {% elif card_name == "Mox Pearl" %}
+                                            {% set _ = p9_emojis2.append("⚪") %}
+                                        {% elif card_name == "Mox Emerald" %}
+                                            {% set _ = p9_emojis2.append("💚") %}
+                                        {% elif card_name == "Timetwister" %}
+                                            {% set _ = p9_emojis2.append("🌀") %}
+                                        {% endif %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                            
                             <div class="match-card" data-table-size="{{ table_size }}" data-table="{{ match.table }}" 
                                 {% if not tournament_ended %}
                                 onclick="openResultModal(
@@ -1382,19 +1994,31 @@
                                     {% if has_leg_symbol1 %}
                                         <!-- Spezielle Spielerkarte für 🦵-markierte Spieler -->
                                         <div class="player-info leg-marked">
-                                            <span class="player-name">{{ clean_player1 }} <span class="leg-indicator">🦵</span></span>
+                                            <span class="player-name">{{ clean_player1 }} <span class="leg-indicator">🦵</span>
+                                            {% for emoji in p9_emojis1 %}
+                                                <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
+                                            {% endfor %}
+                                            </span>
                                             <div class="score">{{ match.score1 or '0' }}</div>
                                         </div>
                                     {% elif match.player2 == "BYE" %}
                                         <!-- Spieler mit BYE Match automatisch als Gewinner darstellen -->
                                         <div class="player-info winner">
-                                            <span class="player-name">{{ clean_player1 }}</span>
+                                            <span class="player-name">{{ clean_player1 }}
+                                            {% for emoji in p9_emojis1 %}
+                                                <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
+                                            {% endfor %}
+                                            </span>
                                             <div class="score">2</div>
                                         </div>
                                     {% else %}
                                         <!-- Standard-Spielerkarte für normale Spieler -->
                                         <div class="player-info {% if match.score1|int > match.score2|int %}winner{% elif match.score1|int < match.score2|int %}loser{% elif match.score1|int == match.score2|int and match.score1|int > 0 %}draw{% endif %}">
-                                            <span class="player-name">{{ clean_player1 }}</span>
+                                            <span class="player-name">{{ clean_player1 }}
+                                            {% for emoji in p9_emojis1 %}
+                                                <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
+                                            {% endfor %}
+                                            </span>
                                             <div class="score">{{ match.score1 or '0' }}</div>
                                         </div>
                                     {% endif %}
@@ -1403,7 +2027,11 @@
                                     {% if has_leg_symbol2 %}
                                         <!-- Spezielle Spielerkarte für 🦵-markierte Spieler -->
                                         <div class="player-info leg-marked">
-                                            <span class="player-name">{{ clean_player2 }} <span class="leg-indicator">🦵</span></span>
+                                            <span class="player-name">{{ clean_player2 }} <span class="leg-indicator">🦵</span>
+                                            {% for emoji in p9_emojis2 %}
+                                                <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
+                                            {% endfor %}
+                                            </span>
                                             <div class="score">{{ match.score2 or '0' }}</div>
                                         </div>
                                     {% elif match.player2 == "BYE" %}
@@ -1415,7 +2043,11 @@
                                     {% else %}
                                         <!-- Standard-Spielerkarte für normale Spieler -->
                                         <div class="player-info {% if match.score2|int > match.score1|int %}winner{% elif match.score2|int < match.score1|int %}loser{% elif match.score2|int == match.score1|int and match.score2|int > 0 %}draw{% endif %}">
-                                            <span class="player-name">{{ clean_player2 }}</span>
+                                            <span class="player-name">{{ clean_player2 }}
+                                            {% for emoji in p9_emojis2 %}
+                                                <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
+                                            {% endfor %}
+                                            </span>
                                             <div class="score">{{ match.score2 or '0' }}</div>
                                         </div>
                                     {% endif %}
@@ -1536,13 +2168,53 @@
                     <input type="hidden" name="score_draws" id="modalScoreDraws" value="0">
                 </div>
 
-                <!-- Fehlermeldungsfeld - jetzt direkt vor dem Button platziert -->
-                <div class="error-message-box" id="errorMessageBox"></div>
+                <!-- Fehlermeldungsfeld - jetzt mit verbessertem Design -->
+                <div class="error-message-box error-message-box-modal" id="errorMessageBox" role="alert">
+                    <strong>Fehler:</strong> <span id="errorMessageText"></span>
+                </div>
 
                 <div class="control-buttons">
                     <button type="submit" class="submit-button">Ergebnis speichern</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Power Nine Modal -->
+    <div id="powerNineModal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="close" onclick="closePowerNineModal()">&times;</span>
+            <h2>Power Nine zuweisen</h2>
+            
+            <div style="margin-bottom: 20px;">
+                <label for="playerSelect" style="display: block; margin-bottom: 8px; font-weight: 500;">Spieler auswählen:</label>
+                <select id="playerSelect" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ddd;">
+                    <option value="">-- Spieler wählen --</option>
+                    {% for match in matches %}
+                        {% if match.player1 and match.player1 != "DELETED_PLAYER" %}
+                            <option value="{{ match.player1 }}">{{ match.player1 }}</option>
+                        {% endif %}
+                        {% if match.player2 and match.player2 != "BYE" and match.player2 != "DELETED_PLAYER" %}
+                            <option value="{{ match.player2 }}">{{ match.player2 }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div>
+                <label style="display: block; margin-bottom: 12px; font-weight: 500;">Power Nine Karten:</label>
+                <div id="powerNineCards" class="power-nine-grid">
+                    <!-- Wird per JavaScript befüllt -->
+                </div>
+            </div>
+            
+            <div id="powerNineSuccessMessage" style="display: none; margin-top: 15px; padding: 10px; background-color: #d4edda; color: #155724; border-radius: 4px; text-align: center;">
+                Power Nine Karte erfolgreich zugewiesen!
+            </div>
+            
+            <div class="control-buttons">
+                <button type="button" onclick="savePowerNine()" class="submit-button">Speichern</button>
+            </div>
         </div>
     </div>
 

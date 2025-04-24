@@ -1,4 +1,4 @@
-# Python
+# Python-Cache-Dateien
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,11 +20,11 @@ var/
 .installed.cfg
 *.egg
 
-# Virtual Environment
+# Virtuelle Umgebung
 venv/
 ENV/
 
-# IDE
+# IDE-spezifische Dateien
 .idea/
 .vscode/
 *.swp
@@ -49,4 +49,7 @@ config/secret_key
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Turnierdaten (können lokal generiert werden)
+tournament_results/ 
