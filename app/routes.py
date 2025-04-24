@@ -409,8 +409,39 @@ def save_results():
     dropout2 = request.form.get("dropout2") == "true"
     table_size = request.form.get("table_size", "6")  # Standardwert 6, falls nicht angegeben
     
+    # Prüfe auf Power Nine Daten
+    player1_power_nine = request.form.get("player1_power_nine")
+    player2_power_nine = request.form.get("player2_power_nine")
+    player1_name = request.form.get("player1_name")
+    player2_name = request.form.get("player2_name")
+    
     print(f"Daten aus Formular: Tisch {table}, {player1} vs {player2}, Ergebnis: {score1}-{score2}-{score_draws}, Tischgrösse: {table_size}, Runde: {current_round}")
     print(f"Dropout1: {dropout1}, Dropout2: {dropout2}")
+    
+    # Verarbeite Power Nine Daten, falls vorhanden
+    if player1_power_nine and player1_name:
+        try:
+            power_nine_data = json.loads(player1_power_nine)
+            print(f"Power Nine Daten für {player1_name} empfangen: {power_nine_data}")
+            update_tournament_power_nine(tournament_id, player1_name, power_nine_data)
+            
+            # Aktualisiere auch die globalen Statistiken für den Spieler
+            from .player_stats import update_player_power_nine
+            update_player_power_nine(player1_name, power_nine_data)
+        except Exception as e:
+            print(f"Fehler bei der Verarbeitung der Power Nine Daten für {player1_name}: {e}")
+    
+    if player2_power_nine and player2_name and player2_name != "BYE":
+        try:
+            power_nine_data = json.loads(player2_power_nine)
+            print(f"Power Nine Daten für {player2_name} empfangen: {power_nine_data}")
+            update_tournament_power_nine(tournament_id, player2_name, power_nine_data)
+            
+            # Aktualisiere auch die globalen Statistiken für den Spieler
+            from .player_stats import update_player_power_nine
+            update_player_power_nine(player2_name, power_nine_data)
+        except Exception as e:
+            print(f"Fehler bei der Verarbeitung der Power Nine Daten für {player2_name}: {e}")
     
     # In results.csv speichern
     results_file = os.path.join("tournament_data", "results.csv")

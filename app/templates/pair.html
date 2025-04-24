@@ -1231,7 +1231,7 @@
             return name.replace(" 🦵", "");
         }
         
-        // Funktion zum Initialisieren des Modals
+        // Modifizierte openResultModal Funktion, um die Power Nine Felder zurückzusetzen
         function openResultModal(table, player1, player2, tableSize, score1, score2, dropout1, dropout2, currentRound, display1, display2, score_draws) {
             document.getElementById('modalTable').value = table;
             document.getElementById('modalPlayer1').value = player1;
@@ -1243,6 +1243,28 @@
             document.getElementById('modalCurrentRound').value = currentRound;
             document.getElementById('modalDropout1').value = dropout1 || 'false';
             document.getElementById('modalDropout2').value = dropout2 || 'false';
+            
+            // Power Nine Bereich zurücksetzen und verstecken
+            document.getElementById('powerNineSection').style.display = 'none';
+            document.getElementById('player1PowerNine').value = '{}';
+            document.getElementById('player2PowerNine').value = '{}';
+            
+            // Spielernamen im Dropdown aktualisieren
+            const selectElement = document.getElementById('powerNinePlayerSelect');
+            const player1Option = selectElement.options[0];
+            const player2Option = selectElement.options[1];
+            
+            player1Option.text = cleanPlayerName(display1 || player1);
+            player2Option.text = cleanPlayerName(display2 || player2);
+            
+            // Für Spieler 2, prüfe ob es ein BYE ist
+            if (player2 === "BYE") {
+                player2Option.disabled = true;
+                player2Option.text = "BYE";
+            } else {
+                player2Option.disabled = false;
+                player2Option.text = cleanPlayerName(display2 || player2);
+            }
             
             // Zeige Spielernamen an (mit oder ohne 🦵-Symbol)
             const player1Name = cleanPlayerName(display1 || player1);
@@ -1487,6 +1509,23 @@
                     // Sammle alle Formulardaten
                     const formData = new FormData(form);
                     
+                    // Verarbeite Power Nine Daten
+                    const player1PowerNine = JSON.parse(document.getElementById('player1PowerNine').value || '{}');
+                    const player2PowerNine = JSON.parse(document.getElementById('player2PowerNine').value || '{}');
+                    const player1Name = document.getElementById('modalPlayer1').value;
+                    const player2Name = document.getElementById('modalPlayer2').value;
+                    
+                    // Wenn Power Nine Daten vorhanden sind, füge sie hinzu
+                    if (Object.keys(player1PowerNine).length > 0) {
+                        formData.append('player1_power_nine', JSON.stringify(player1PowerNine));
+                        formData.append('player1_name', player1Name);
+                    }
+                    
+                    if (Object.keys(player2PowerNine).length > 0 && player2Name !== "BYE") {
+                        formData.append('player2_power_nine', JSON.stringify(player2PowerNine));
+                        formData.append('player2_name', player2Name);
+                    }
+                    
                     // Scrollposition speichern
                     localStorage.setItem('scrollPosition', window.scrollY.toString());
                     console.log("Scrollposition gespeichert:", window.scrollY);
@@ -1498,8 +1537,6 @@
                     const scoreDraws = document.getElementById('modalScoreDraws').value;
                     const dropout1 = document.getElementById('modalDropout1').value;
                     const dropout2 = document.getElementById('modalDropout2').value;
-                    const player1 = document.getElementById('modalPlayer1').value;
-                    const player2 = document.getElementById('modalPlayer2').value;
                     
                     // Schließe das Modal
                     closeResultModal();
@@ -1572,55 +1609,71 @@
             { name: "Timetwister", emoji: "🌀" }
         ];
         
-        function openPowerNineModal() {
-            // Modal anzeigen
-            document.getElementById('powerNineModal').style.display = 'block';
-            
-            // Power Nine Karten generieren
-            generatePowerNineCards();
-            
-            // Beim Öffnen des Modals das Erfolgsfeld zurücksetzen
-            document.getElementById('powerNineSuccessMessage').style.display = 'none';
+        // Toggle-Funktion für den Power Nine Bereich
+        function togglePowerNineSection() {
+            const section = document.getElementById('powerNineSection');
+            if (section.style.display === 'none') {
+                section.style.display = 'block';
+                // Generiere Power Nine Karten für den ausgewählten Spieler
+                loadPowerNineForCurrentPlayer();
+            } else {
+                section.style.display = 'none';
+            }
         }
         
-        function closePowerNineModal() {
-            document.getElementById('powerNineModal').style.display = 'none';
-        }
-        
-        function generatePowerNineCards() {
-            const cardsContainer = document.getElementById('powerNineCards');
-            cardsContainer.innerHTML = '';
+        // Laden der Power Nine Daten für den aktuell ausgewählten Spieler
+        function loadPowerNineForCurrentPlayer() {
+            const selectElement = document.getElementById('powerNinePlayerSelect');
+            const selectedValue = selectElement.value;
             
-            // Leere Select-Meldung
-            if (!document.getElementById('playerSelect').value) {
-                cardsContainer.innerHTML = '<p style="grid-column: 1 / -1; text-align: center; color: #666;">Bitte wählen Sie zuerst einen Spieler aus.</p>';
-                return;
+            // Bestimme Spielername basierend auf der Auswahl
+            let playerName;
+            if (selectedValue === 'player1') {
+                playerName = document.getElementById('modalPlayer1').value;
+            } else {
+                playerName = document.getElementById('modalPlayer2').value;
             }
             
-            // Lade aktuelle Daten für den ausgewählten Spieler
-            fetchPlayerPowerNine(document.getElementById('playerSelect').value);
+            // Lade Power Nine Daten für diesen Spieler
+            if (playerName === "BYE") {
+                renderEmptyPowerNineCards();
+            } else {
+                fetchPlayerPowerNine(playerName, selectedValue);
+            }
         }
         
-        async function fetchPlayerPowerNine(playerName) {
+        // Event-Listener für den Spielerwechsel im Power Nine Bereich
+        document.addEventListener('DOMContentLoaded', function() {
+            const playerSelect = document.getElementById('powerNinePlayerSelect');
+            if (playerSelect) {
+                playerSelect.addEventListener('change', function() {
+                    loadPowerNineForCurrentPlayer();
+                });
+            }
+        });
+        
+        // Funktion zum Abrufen der Power Nine Daten eines Spielers
+        async function fetchPlayerPowerNine(playerName, playerKey) {
             try {
                 const response = await fetch(`/api/player/${encodeURIComponent(playerName)}/power_nine`);
                 const data = await response.json();
                 
                 if (data.success) {
-                    renderPowerNineCards(data.power_nine);
+                    renderPowerNineCards(data.power_nine, playerKey);
+                    // Speichere die aktuellen Daten im versteckten Input-Feld
+                    updatePowerNineInput(playerKey, data.power_nine);
                 } else {
                     console.error('Fehler beim Laden der Power Nine Daten:', data.message);
-                    document.getElementById('powerNineCards').innerHTML = 
-                        '<p style="grid-column: 1 / -1; text-align: center; color: #721c24;">Fehler beim Laden der Daten.</p>';
+                    renderEmptyPowerNineCards();
                 }
             } catch (error) {
                 console.error('Fehler beim Laden der Power Nine Daten:', error);
-                document.getElementById('powerNineCards').innerHTML = 
-                    '<p style="grid-column: 1 / -1; text-align: center; color: #721c24;">Fehler beim Laden der Daten.</p>';
+                renderEmptyPowerNineCards();
             }
         }
         
-        function renderPowerNineCards(playerPowerNine) {
+        // Funktion zum Rendern der Power Nine Karten
+        function renderPowerNineCards(playerPowerNine, playerKey) {
             const cardsContainer = document.getElementById('powerNineCards');
             cardsContainer.innerHTML = '';
             
@@ -1630,6 +1683,7 @@
                 const cardElement = document.createElement('div');
                 cardElement.className = `power-nine-card ${hasCard ? 'selected' : ''}`;
                 cardElement.dataset.card = card.name;
+                cardElement.dataset.player = playerKey;
                 cardElement.onclick = function() { togglePowerNineCard(this); };
                 
                 cardElement.innerHTML = `
@@ -1641,6 +1695,13 @@
             });
         }
         
+        // Funktion zum Rendern leerer Power Nine Karten
+        function renderEmptyPowerNineCards() {
+            const cardsContainer = document.getElementById('powerNineCards');
+            cardsContainer.innerHTML = '<p style="grid-column: 1 / -1; text-align: center; color: #666;">Dieser Spieler kann keine Power Nine Karten erhalten.</p>';
+        }
+        
+        // Funktion zum Umschalten einer Power Nine Karte
         function togglePowerNineCard(cardElement) {
             // Umschalten der "selected" Klasse für die angeklickte Karte
             cardElement.classList.toggle('selected');
@@ -1659,65 +1720,168 @@
                     cardElement.style.transform = '';
                 }, 200);
             }
+            
+            // Aktualisiere die versteckten Input-Felder
+            updatePowerNineInputFromCards(cardElement.dataset.player);
         }
         
-        async function savePowerNine() {
-            const playerName = document.getElementById('playerSelect').value;
-            if (!playerName) {
-                alert('Bitte wählen Sie zuerst einen Spieler aus.');
-                return;
-            }
+        // Funktion zum Aktualisieren der versteckten Input-Felder
+        function updatePowerNineInputFromCards(playerKey) {
+            const cards = document.querySelectorAll(`.power-nine-card[data-player="${playerKey}"]`);
+            const powerNineData = {};
             
-            // Sammle ausgewählte Karten
-            const selectedCards = {};
-            POWER_NINE_CARDS.forEach(card => {
-                const cardElement = document.querySelector(`.power-nine-card[data-card="${card.name}"]`);
-                selectedCards[card.name] = cardElement && cardElement.classList.contains('selected');
+            cards.forEach(card => {
+                const cardName = card.dataset.card;
+                powerNineData[cardName] = card.classList.contains('selected');
             });
             
-            try {
-                const response = await fetch(`/api/player/${encodeURIComponent(playerName)}/power_nine`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(selectedCards),
-                });
-                
-                if (!response.ok) {
-                    const data = await response.json();
-                    throw new Error(data.message || 'Netzwerkantwort war nicht ok');
-                }
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    // Aktualisiere Match-Karten mit Power Nine Emojis
-                    updateMatchCardsWithPowerNine(playerName, selectedCards);
-                    
-                    // Schließe das Modal automatisch
-                    closePowerNineModal();
-                    
-                    // Zeige kurze Erfolgsmeldung als Toast/Popup
-                    // showFloatingMessage('Power Nine Karten erfolgreich aktualisiert!');
-                    
-                    // Nach kurzer Verzögerung Seite neu laden, um alle Anzeigen korrekt zu aktualisieren
-                    setTimeout(() => {
-                        performFullReload();
-                    }, 1);
-                } else {
-                    alert('Fehler beim Speichern: ' + data.message);
-                }
-            } catch (error) {
-                console.error('Fehler beim Speichern der Power Nine Daten:', error);
-                let errorMessage = 'Fehler beim Speichern der Daten';
-                if (error.message) {
-                    errorMessage += ': ' + error.message;
-                }
-                // showFloatingMessage(errorMessage, true);
-            }
+            updatePowerNineInput(playerKey, powerNineData);
         }
         
+        // Funktion zum Aktualisieren des versteckten Inputs mit den Power Nine Daten
+        function updatePowerNineInput(playerKey, powerNineData) {
+            const inputId = playerKey === 'player1' ? 'player1PowerNine' : 'player2PowerNine';
+            document.getElementById(inputId).value = JSON.stringify(powerNineData);
+        }
+        
+        // Modifizierte openResultModal Funktion, um die Power Nine Felder zurückzusetzen
+        function openResultModal(table, player1, player2, tableSize, score1, score2, dropout1, dropout2, currentRound, display1, display2, score_draws) {
+            document.getElementById('modalTable').value = table;
+            document.getElementById('modalPlayer1').value = player1;
+            document.getElementById('modalPlayer2').value = player2;
+            document.getElementById('modalTableSize').value = tableSize;
+            document.getElementById('modalScore1').value = score1 || '0';
+            document.getElementById('modalScore2').value = score2 || '0';
+            document.getElementById('modalScoreDraws').value = score_draws || '0';  // Verwende den übergebenen Wert
+            document.getElementById('modalCurrentRound').value = currentRound;
+            document.getElementById('modalDropout1').value = dropout1 || 'false';
+            document.getElementById('modalDropout2').value = dropout2 || 'false';
+            
+            // Power Nine Bereich zurücksetzen und verstecken
+            document.getElementById('powerNineSection').style.display = 'none';
+            document.getElementById('player1PowerNine').value = '{}';
+            document.getElementById('player2PowerNine').value = '{}';
+            
+            // Spielernamen im Dropdown aktualisieren
+            const selectElement = document.getElementById('powerNinePlayerSelect');
+            const player1Option = selectElement.options[0];
+            const player2Option = selectElement.options[1];
+            
+            player1Option.text = cleanPlayerName(display1 || player1);
+            player2Option.text = cleanPlayerName(display2 || player2);
+            
+            // Für Spieler 2, prüfe ob es ein BYE ist
+            if (player2 === "BYE") {
+                player2Option.disabled = true;
+                player2Option.text = "BYE";
+            } else {
+                player2Option.disabled = false;
+                player2Option.text = cleanPlayerName(display2 || player2);
+            }
+            
+            // Zeige Spielernamen an (mit oder ohne 🦵-Symbol)
+            const player1Name = cleanPlayerName(display1 || player1);
+            const player2Name = cleanPlayerName(display2 || player2);
+            
+            document.getElementById('modalPlayer1Name').textContent = player1Name;
+            
+            // Für Spieler 2, prüfe ob es ein BYE ist
+            if (player2 === "BYE") {
+                document.getElementById('modalPlayer2Name').textContent = "BYE";
+                document.getElementById('player2-info').classList.add('leg-marked');
+                
+                // Deaktiviere Ergebnis-Buttons für BYE
+                const score2Buttons = document.querySelectorAll('#score2Buttons .score-button');
+                score2Buttons.forEach(button => {
+                    button.disabled = true;
+                    button.classList.remove('selected');
+                    if (button.textContent === "0") {
+                        button.classList.add('selected');
+                    }
+                });
+                
+                // Deaktiviere Unentschieden-Buttons für BYE
+                const scoreDrawsButtons = document.querySelectorAll('#scoreDrawsButtons .score-button');
+                scoreDrawsButtons.forEach(button => {
+                    button.disabled = true;
+                    button.classList.remove('selected');
+                    if (button.textContent === "0") {
+                        button.classList.add('selected');
+                    }
+                });
+                
+                // Setze Ergebnisse für BYE
+                document.getElementById('modalScore1').value = "2";
+                document.getElementById('modalScore2').value = "0";
+                document.getElementById('modalScoreDraws').value = "0";
+                
+                // Markiere die entsprechenden Buttons als ausgewählt
+                selectButton('modalScore1', "2");
+                selectButton('modalScore2', "0");
+                selectButton('modalScoreDraws', "0");
+            } else {
+                document.getElementById('modalPlayer2Name').textContent = player2Name;
+                document.getElementById('player2-info').classList.remove('leg-marked');
+                
+                // Aktiviere Ergebnis-Buttons für normales Match
+                const score2Buttons = document.querySelectorAll('#score2Buttons .score-button');
+                score2Buttons.forEach(button => {
+                    button.disabled = false;
+                });
+                
+                // Aktiviere Unentschieden-Buttons für normales Match
+                const scoreDrawsButtons = document.querySelectorAll('#scoreDrawsButtons .score-button');
+                scoreDrawsButtons.forEach(button => {
+                    button.disabled = false;
+                });
+                
+                // Markiere die entsprechenden Buttons als ausgewählt
+                selectButton('modalScore1', score1 || "0");
+                selectButton('modalScore2', score2 || "0");
+                selectButton('modalScoreDraws', score_draws || "0");  // Verwende den übergebenen Wert
+            }
+            
+            // Prüfen ob Spieler als Dropout markiert sind
+            if (dropout1 === 'true') {
+                const dropoutButton = document.querySelector('#player1-info .dropout-button');
+                dropoutButton.textContent = '🦵';
+                dropoutButton.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+                document.getElementById('player1-info').classList.add('dropout');
+                document.getElementById('modalPlayer1Leg').style.display = 'inline';
+            } else {
+                const dropoutButton = document.querySelector('#player1-info .dropout-button');
+                dropoutButton.textContent = '🦵';
+                dropoutButton.style.background = 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)';
+                document.getElementById('player1-info').classList.remove('dropout');
+                document.getElementById('modalPlayer1Leg').style.display = 'none';
+            }
+            
+            if (dropout2 === 'true' && player2 !== "BYE") {
+                const dropoutButton = document.querySelector('#player2-info .dropout-button');
+                dropoutButton.textContent = '🦵';
+                dropoutButton.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+                document.getElementById('player2-info').classList.add('dropout');
+                document.getElementById('modalPlayer2Leg').style.display = 'inline';
+            } else {
+                const dropoutButton = document.querySelector('#player2-info .dropout-button');
+                dropoutButton.textContent = '🦵';
+                dropoutButton.style.background = 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)';
+                document.getElementById('player2-info').classList.remove('dropout');
+                document.getElementById('modalPlayer2Leg').style.display = 'none';
+            }
+            
+            document.getElementById('resultModal').style.display = 'block';
+
+            // Speichere die aktuelle Scrollposition
+            localStorage.setItem('scrollPosition', window.scrollY);
+        }
+
+        // Hilfsfunktion zum Entfernen des 🦵-Symbols aus einem Namen
+        function cleanPlayerName(name) {
+            if (!name) return "";
+            return name.replace(" 🦵", "");
+        }
+
         // Hilfsfunktion für Erfolgsmeldung
         function showFloatingMessage(message, isError = false) {
             // Erstelle ein neues Element für die Meldung
@@ -1864,7 +2028,6 @@
             {% endif %}
         </div>
         <div style="display: flex; gap: 1em; margin-left: {% if tournament_ended %}20px{% else %}0{% endif %};">
-            <button type="button" onclick="openPowerNineModal()" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Power Nine hinzufügen</button>
             {% if not tournament_ended %}
                 <form method="POST" action="/end_tournament" style="display:inline;">
                     <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Turnier beenden</button>
@@ -2168,6 +2331,36 @@
                     <input type="hidden" name="score_draws" id="modalScoreDraws" value="0">
                 </div>
 
+                <!-- Power Nine Bereich Button -->
+                <div style="margin-top: 20px; text-align: center;">
+                    <button type="button" class="btn-result" onclick="togglePowerNineSection()" style="width: auto">
+                        Power Nine hinzufügen
+                    </button>
+                </div>
+                
+                <!-- Power Nine Bereich (anfangs versteckt) -->
+                <div id="powerNineSection" style="display: none; margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px;">
+                    <h3 style="margin-bottom: 10px;">Power Nine Karten zuweisen</h3>
+                    
+                    <!-- Spielerauswahl für Power Nine -->
+                    <div style="margin-bottom: 15px;">
+                        <label for="powerNinePlayerSelect" style="display: block; margin-bottom: 5px; font-weight: 500;">Spieler:</label>
+                        <select id="powerNinePlayerSelect" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                            <option value="player1">Spieler 1</option>
+                            <option value="player2">Spieler 2</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Karten Grid -->
+                    <div id="powerNineCards" class="power-nine-grid">
+                        <!-- Wird per JavaScript befüllt -->
+                    </div>
+                    
+                    <!-- Input-Felder für die Power Nine Daten -->
+                    <input type="hidden" id="player1PowerNine" name="player1PowerNine" value="{}">
+                    <input type="hidden" id="player2PowerNine" name="player2PowerNine" value="{}">
+                </div>
+
                 <!-- Fehlermeldungsfeld - jetzt mit verbessertem Design -->
                 <div class="error-message-box error-message-box-modal" id="errorMessageBox" role="alert">
                     <strong>Fehler:</strong> <span id="errorMessageText"></span>
@@ -2180,43 +2373,8 @@
         </div>
     </div>
 
-    <!-- Power Nine Modal -->
-    <div id="powerNineModal" class="modal">
-        <div class="modal-content" style="max-width: 600px;">
-            <span class="close" onclick="closePowerNineModal()">&times;</span>
-            <h2>Power Nine zuweisen</h2>
-            
-            <div style="margin-bottom: 20px;">
-                <label for="playerSelect" style="display: block; margin-bottom: 8px; font-weight: 500;">Spieler auswählen:</label>
-                <select id="playerSelect" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ddd;">
-                    <option value="">-- Spieler wählen --</option>
-                    {% for match in matches %}
-                        {% if match.player1 and match.player1 != "DELETED_PLAYER" %}
-                            <option value="{{ match.player1 }}">{{ match.player1 }}</option>
-                        {% endif %}
-                        {% if match.player2 and match.player2 != "BYE" and match.player2 != "DELETED_PLAYER" %}
-                            <option value="{{ match.player2 }}">{{ match.player2 }}</option>
-                        {% endif %}
-                    {% endfor %}
-                </select>
-            </div>
-            
-            <div>
-                <label style="display: block; margin-bottom: 12px; font-weight: 500;">Power Nine Karten:</label>
-                <div id="powerNineCards" class="power-nine-grid">
-                    <!-- Wird per JavaScript befüllt -->
-                </div>
-            </div>
-            
-            <div id="powerNineSuccessMessage" style="display: none; margin-top: 15px; padding: 10px; background-color: #d4edda; color: #155724; border-radius: 4px; text-align: center;">
-                Power Nine Karte erfolgreich zugewiesen!
-            </div>
-            
-            <div class="control-buttons">
-                <button type="button" onclick="savePowerNine()" class="submit-button">Speichern</button>
-            </div>
-        </div>
-    </div>
+    <!-- Power Nine Modal entfernen und durch den integrierten Bereich ersetzen -->
+    <!-- Das Power Nine Modal wird nicht mehr benötigt -->
 
     <div class="round-navigation">
         {% if current_round > 1 %}
