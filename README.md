@@ -11,6 +11,8 @@ Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnier
 - **Responsive Design**: Funktioniert auf Desktop und mobilen Geräten
 - **Dropout-Behandlung**: Markiere Spieler als Dropouts mit 🦵-Symbol
 - **Turnierleaderboard**: Übersichtliche Darstellung mit farbcodierten Tischgrössen
+- **Multiple Tische gleicher Größe**: Separate Leaderboards für mehrere Tische mit gleicher Spieleranzahl (z.B. zwei 6er-Tische)
+- **Turnierarchiv**: Vergangene Turniere und deren Ergebnisse werden angezeigt
 
 ## Installation
 
@@ -77,6 +79,22 @@ Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnier
 ### Turnier beenden
 
 Nach Abschluss des Turniers kann ein Endstand mit Leaderboards für alle Tischgrössen angezeigt werden.
+Abgeschlossene Turniere können erneut angesehen werden, ohne dass Änderungen vorgenommen werden können.
+
+## Datenspeicherung
+
+Die Anwendung verwendet eine dateibasierte Speicherung für alle Turnierdaten:
+
+- **data/{tournament_id}/**: Verzeichnis für jedes Turnier
+  - **player_groups.json**: Speichert die Zuordnung von Spielern zu Tischgrößen
+  - **rounds/**: Enthält Rundeninformationen
+    - **round_{n}.csv**: Eine CSV-Datei pro Runde mit den Paarungen und Ergebnissen
+  
+- **tournament_data/**: Globales Verzeichnis für Turnierergebnisse
+  - **results.csv**: Kumulierte Ergebnisse aller Turniere und Runden
+
+- **tournament_results/**: Archiv abgeschlossener Turniere
+  - **{tournament_id}_results.json**: Turnierdaten und finales Leaderboard
 
 ## Technologie-Stack
 
@@ -96,6 +114,11 @@ MTG-Draft-App/
 │   ├── routes.py       # Routen und Hauptlogik
 │   └── templates/      # HTML-Templates
 ├── data/               # Turnierdaten (gitignore)
+│   └── {tournament_id}/# Verzeichnisstruktur pro Turnier
+│       ├── player_groups.json # Spielergruppenzuordnung
+│       └── rounds/     # Rundeninformationen
+├── tournament_data/    # Globale Ergebnisdaten
+├── tournament_results/ # Abgeschlossene Turniere
 ├── config/             # Konfigurationsdateien
 ├── instance/           # Instanz-spezifische Daten (gitignore)
 ├── venv/               # Virtuelle Umgebung (gitignore)
