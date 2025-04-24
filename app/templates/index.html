@@ -304,6 +304,355 @@
             font-size: 1.2em;
             margin-top: 10px;
         }
+
+        /* Stil für Vergangene Turniere */
+        .past-tournaments-section {
+            margin-top: 40px;
+            padding: 25px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .past-tournaments-section:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.12);
+        }
+        
+        .past-tournaments-section h2 {
+            color: var(--dark-color);
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.6em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 2px solid var(--light-color);
+            padding-bottom: 15px;
+        }
+        
+        .past-tournaments-section h2::before {
+            content: "🏆";
+            font-size: 1.2em;
+        }
+        
+        .accordion {
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        
+        .accordion-item {
+            margin-bottom: 15px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .accordion-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        }
+        
+        .accordion-header {
+            background: linear-gradient(135deg, var(--light-color) 0%, #f0f4f8 100%);
+            padding: 16px 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            transition: all 0.3s ease;
+            border-left: 4px solid var(--primary-color);
+            position: relative;
+        }
+        
+        .accordion-header:hover {
+            background: linear-gradient(135deg, #e9f0f7 0%, #dce6f2 100%);
+        }
+        
+        .tournament-winner {
+            font-weight: 600;
+            font-size: 1.2em;
+            color: var(--dark-color);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+        }
+        
+        .tournament-date {
+            color: #6c757d;
+            font-size: 0.95em;
+            padding: 4px 10px;
+            background: rgba(74, 144, 226, 0.1);
+            border-radius: 20px;
+            margin-right: 15px;
+            white-space: nowrap;
+        }
+        
+        .delete-tournament-btn {
+            color: var(--danger-color);
+            background: transparent;
+            border: none;
+            font-size: 1.2em;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+            margin-right: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+        }
+        
+        .delete-tournament-btn:hover {
+            background-color: rgba(231, 76, 60, 0.1);
+            transform: scale(1.1);
+        }
+        
+        .accordion-icon {
+            transition: transform 0.3s;
+            color: var(--primary-color);
+            font-size: 1.2em;
+        }
+        
+        .accordion-content {
+            display: none;
+            padding: 0;
+            background: white;
+            border-top: 1px solid rgba(0,0,0,0.05);
+        }
+        
+        .active {
+            background: linear-gradient(135deg, #e9f0f7 0%, #dce6f2 100%);
+        }
+        
+        .active .accordion-icon {
+            transform: rotate(180deg);
+            color: var(--dark-color);
+        }
+        
+        .leaderboard {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0;
+            font-size: 0.95em;
+        }
+        
+        .leaderboard th {
+            background: linear-gradient(135deg, var(--dark-color) 0%, #34495e 100%);
+            color: white;
+            padding: 12px 15px;
+            text-align: center;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+        }
+        
+        .leaderboard td {
+            padding: 12px 15px;
+            text-align: center;
+            border-bottom: 1px solid rgba(74, 144, 226, 0.1);
+        }
+        
+        .leaderboard tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .leaderboard tr:nth-child(even) {
+            background-color: var(--light-color);
+        }
+        
+        .leaderboard tr:hover {
+            background-color: rgba(74, 144, 226, 0.1);
+        }
+        
+        .leaderboard td:first-child, 
+        .leaderboard th:first-child {
+            text-align: center;
+            width: 60px;
+        }
+        
+        .medal {
+            font-size: 1.4em;
+            margin: 0 auto;
+            display: block;
+        }
+        
+        /* Responsive-Design für die Tabelle */
+        @media (max-width: 767px) {
+            .leaderboard {
+                font-size: 0.85em;
+            }
+            
+            .leaderboard th, 
+            .leaderboard td {
+                padding: 8px 10px;
+            }
+        }
+
+        .table-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .section-header h2 {
+            margin: 0;
+        }
+        
+        .group-sizes {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .start-button {
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.1em;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        
+        .start-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .start-button:disabled {
+            background: linear-gradient(135deg, #a0a0a0 0%, #808080 100%);
+            color: #e0e0e0;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .start-button:disabled:hover {
+            transform: none;
+            box-shadow: none;
+        }
+        
+        @media (max-width: 768px) {
+            .section-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .section-header h2 {
+                margin-bottom: 15px;
+            }
+            
+            .start-button {
+                width: 100%;
+            }
+            
+            .table-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+
+        /* Stil für den Bestätigungsdialog */
+        .confirmation-dialog {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .dialog-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 450px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            text-align: center;
+        }
+        
+        .dialog-title {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+            color: var(--dark-color);
+        }
+        
+        .dialog-message {
+            margin-bottom: 25px;
+            color: #666;
+            line-height: 1.5;
+        }
+        
+        .dialog-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        .btn-dialog {
+            padding: 10px 25px;
+            border-radius: 6px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+        }
+        
+        .btn-cancel {
+            background-color: #f1f1f1;
+            color: #666;
+        }
+        
+        .btn-cancel:hover {
+            background-color: #e5e5e5;
+        }
+        
+        .btn-delete {
+            background: linear-gradient(135deg, var(--danger-color) 0%, #c0392b 100%);
+            color: white;
+        }
+        
+        .btn-delete:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(231, 76, 60, 0.3);
+        }
+        
+        /* Animationen für Dialog */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .show-dialog {
+            display: flex;
+            animation: fadeIn 0.3s ease;
+        }
     </style>
 </head>
 <body>
@@ -320,7 +669,10 @@
 
         <form method="POST" action="{{ url_for('main.pair') }}">
             <div class="setup-section">
-                <h2>Tischgrössen auswählen</h2>
+                <div class="section-header">
+                    <h2>Tischgrössen auswählen</h2>
+                    <button type="submit" id="startButton" class="start-button" disabled>🎲 Turnier starten</button>
+                </div>
                 <div class="group-sizes">
                     <input type="checkbox" id="size6" name="group_sizes" value="6" class="size-checkbox">
                     <label for="size6" class="size-label">6 Spieler</label>
@@ -371,9 +723,84 @@
                 </table>
                 <div class="player-count">Anzahl Spieler: <span id="playerCount">{{ players_text.split('\n')|length if players_text else 0 }}</span></div>
             </div>
-
-            <button type="submit" class="submit-button">🎲 Turnier starten</button>
         </form>
+
+        <!-- Vergangene Turniere Accordion -->
+        {% if last_tournaments %}
+        <div class="past-tournaments-section">
+            <h2>Letzte Turniere</h2>
+            <div class="accordion">
+                {% for tournament in last_tournaments %}
+                <div class="accordion-item" data-tournament-id="{{ tournament.id }}">
+                    <div class="accordion-header" onclick="toggleAccordion(this)">
+                        <span class="tournament-winner">🏆 {{ tournament.winner }}</span>
+                        <span class="tournament-date">{{ tournament.date }}</span>
+                        <button type="button" 
+                                class="delete-tournament-btn" 
+                                onclick="event.stopPropagation(); showDeleteConfirmation('{{ tournament.id }}', '{{ tournament.winner }}')">
+                            ❌
+                        </button>
+                        <span class="accordion-icon">▼</span>
+                    </div>
+                    <div class="accordion-content">
+                        <table class="leaderboard">
+                            <thead>
+                                <tr>
+                                    <th>Rang</th>
+                                    <th>Spieler</th>
+                                    <th>Punkte</th>
+                                    <th>Ergebnisse</th>
+                                    <th>OMW%</th>
+                                    <th>GW%</th>
+                                    <th>OGW%</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for player in tournament.leaderboard %}
+                                <tr>
+                                    <td>
+                                        {% if loop.index == 1 %}
+                                            <span class="medal">🥇</span>
+                                        {% elif loop.index == 2 %}
+                                            <span class="medal">🥈</span>
+                                        {% elif loop.index == 3 %}
+                                            <span class="medal">🥉</span>
+                                        {% else %}
+                                            {{ loop.index }}
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ player[0] }}</td>
+                                    <td>{{ player[1] }}</td>
+                                    <td>{{ player[2] }}</td>
+                                    <td>{{ player[3] }}</td>
+                                    <td>{{ player[4] }}</td>
+                                    <td>{{ player[5] }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Bestätigungsdialog -->
+    <div id="deleteConfirmationDialog" class="confirmation-dialog">
+        <div class="dialog-content">
+            <div class="dialog-title">Turnier löschen</div>
+            <div class="dialog-message">
+                Möchtest du das Turnier mit Sieger <span id="tournamentWinnerName"></span> wirklich löschen?
+                <br>
+                <small style="color: #c0392b;">Diese Aktion kann nicht rückgängig gemacht werden!</small>
+            </div>
+            <div class="dialog-buttons">
+                <button type="button" class="btn-dialog btn-cancel" onclick="hideDeleteConfirmation()">Abbrechen</button>
+                <button type="button" class="btn-dialog btn-delete" id="confirmDeleteBtn">Turnier löschen</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -400,11 +827,13 @@
             
             document.getElementById('playerName').value = '';
             updatePlayerCount();
+            validateForm(); // Validierung nach Hinzufügen eines Spielers
         }
 
         function updatePlayerCount() {
             const count = document.getElementsByName('players').length;
             document.getElementById('playerCount').textContent = count;
+            validateForm(); // Validierung nach Aktualisierung der Spielerzahl
         }
 
         function addTestPlayers() {
@@ -434,15 +863,121 @@
             });
             
             updatePlayerCount();
+            validateForm(); // Validierung nach Hinzufügen der Testgruppe
         }
 
         // Event-Listener für Enter-Taste im Eingabefeld
         document.getElementById('playerName').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                    addPlayer();
-                }
+                addPlayer();
+            }
+        });
+
+        function toggleAccordion(element) {
+            // Toggle aktive Klasse für das Header-Element
+            element.classList.toggle('active');
+            
+            // Hole das Inhalts-Element
+            const content = element.nextElementSibling;
+            
+            // Öffne oder schließe den Inhalt
+            if (content.style.display === 'block') {
+                content.style.display = 'none';
+            } else {
+                content.style.display = 'block';
+            }
+        }
+
+        // Funktion zum Prüfen, ob das Formular valide ist
+        function validateForm() {
+            // Prüfe, ob mindestens eine Tischgröße ausgewählt ist
+            const tableSizesSelected = Array.from(document.querySelectorAll('input[name="group_sizes"]:checked')).length > 0;
+            
+            // Prüfe, ob mindestens ein Spieler vorhanden ist
+            const playersExist = document.getElementsByName('players').length > 0;
+            
+            // Aktiviere oder deaktiviere den Button basierend auf den Bedingungen
+            const startButton = document.getElementById('startButton');
+            startButton.disabled = !(tableSizesSelected && playersExist);
+        }
+
+        // Initial prüfen
+        document.addEventListener('DOMContentLoaded', function() {
+            validateForm();
+            
+            // Nach jeder Änderung der Checkboxen prüfen
+            document.querySelectorAll('input[name="group_sizes"]').forEach(checkbox => {
+                checkbox.addEventListener('change', validateForm);
             });
+        });
+
+        let tournamentToDelete = null;
+        
+        function showDeleteConfirmation(tournamentId, winnerName) {
+            // Setze die Turnier-ID für das Löschen
+            tournamentToDelete = tournamentId;
+            
+            // Setze den Namen im Dialog
+            document.getElementById('tournamentWinnerName').textContent = winnerName;
+            
+            // Konfiguriere den Bestätigungs-Button
+            document.getElementById('confirmDeleteBtn').onclick = function() {
+                deleteTournament(tournamentId);
+            };
+            
+            // Zeige den Dialog an
+            document.getElementById('deleteConfirmationDialog').classList.add('show-dialog');
+        }
+        
+        function hideDeleteConfirmation() {
+            document.getElementById('deleteConfirmationDialog').classList.remove('show-dialog');
+            tournamentToDelete = null;
+        }
+        
+        function deleteTournament(tournamentId) {
+            // API-Aufruf zum Löschen des Turniers
+            fetch(`/delete_tournament/${tournamentId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Erfolgreich gelöscht - Turnier aus der Ansicht entfernen
+                    const tournamentElement = document.querySelector(`.accordion-item[data-tournament-id="${tournamentId}"]`);
+                    if (tournamentElement) {
+                        tournamentElement.remove();
+                    }
+                    
+                    // Prüfe, ob noch Turniere übrig sind
+                    const remainingTournaments = document.querySelectorAll('.accordion-item');
+                    if (remainingTournaments.length === 0) {
+                        // Wenn keine Turniere mehr vorhanden sind, gesamte Sektion ausblenden
+                        const tournamentSection = document.querySelector('.past-tournaments-section');
+                        if (tournamentSection) {
+                            tournamentSection.style.display = 'none';
+                        }
+                    }
+                    
+                    // Zeige eine kurze Erfolgsmeldung
+                    alert("Das Turnier wurde erfolgreich gelöscht.");
+                } else {
+                    // Fehler beim Löschen
+                    alert("Fehler beim Löschen des Turniers: " + data.message);
+                }
+                
+                // Dialog schließen
+                hideDeleteConfirmation();
+            })
+            .catch(error => {
+                console.error('Fehler beim Löschen:', error);
+                alert("Ein Fehler ist aufgetreten. Bitte versuche es später erneut.");
+                hideDeleteConfirmation();
+            });
+        }
     </script>
 </body>
 </html>
