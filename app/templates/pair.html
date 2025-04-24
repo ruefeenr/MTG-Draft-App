@@ -52,9 +52,10 @@
         }
 
         .score-buttons {
-            display: inline-flex;
+            display: flex;
             gap: 5px;
-            margin: 5px;
+            margin-top: 0;
+            align-items: center;
         }
 
         .score-button {
@@ -117,13 +118,13 @@
 
         .player-info {
             background: var(--light-color);
-            padding: 10px;
+            padding: 8px;
             border-radius: 6px;
             margin-top: 10px;
             margin-bottom: 10px;
             border: 1px solid rgba(74, 144, 226, 0.1);
             position: relative;
-            min-height: 70px;
+            min-height: 50px;
             box-sizing: border-box;
         }
 
@@ -421,8 +422,11 @@
         .dropout-section {
             display: flex;
             gap: 5px;
-            margin-top: 10px;
             justify-content: flex-end;
+            position: static;
+            top: auto;
+            right: auto;
+            margin-top: 0;
         }
         
         .dropout-button {
@@ -466,21 +470,14 @@
 
         .player-info {
             background: var(--light-color);
-            padding: 10px;
+            padding: 8px;
             border-radius: 6px;
             margin-top: 10px;
             margin-bottom: 10px;
             border: 1px solid rgba(74, 144, 226, 0.1);
             position: relative;
-            min-height: 70px;
+            min-height: 50px;
             box-sizing: border-box;
-        }
-
-        .dropout-section {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            margin-top: 0;
         }
 
         .player-name {
@@ -685,13 +682,13 @@
         /* Stile für Player-Info im Modal */
         .player-info {
             background: var(--light-color);
-            padding: 10px;
+            padding: 8px;
             border-radius: 6px;
             margin-top: 10px;
             margin-bottom: 10px;
             border: 1px solid rgba(74, 144, 226, 0.1);
             position: relative;
-            min-height: 70px;
+            min-height: 50px;
             box-sizing: border-box;
         }
         
@@ -769,6 +766,124 @@
         
         .match-content .player-info:last-child {
             margin-bottom: 0;
+        }
+
+        .score-section {
+            margin-top: 10px;
+        }
+        
+        .draw-section {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            background: var(--light-color);
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(74, 144, 226, 0.1);
+            position: relative;
+            min-height: 50px;
+            box-sizing: border-box;
+        }
+        
+        .draw-section label {
+            display: inline-block;
+            font-weight: 500;
+            margin-bottom: 0;
+            color: #333;
+            margin-right: 10px;
+        }
+        
+        .score-buttons {
+            display: flex;
+            gap: 5px;
+            margin-top: 0;
+        }
+        
+        .draw-indicator {
+            margin-top: 10px;
+            padding: 5px 10px;
+            background: #eceff1;
+            color: #546e7a;
+            font-size: 0.9em;
+            border-radius: 4px;
+            text-align: center;
+            border-left: 3px solid #78909c;
+        }
+
+        .modal-row {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            position: relative;
+            padding: 5px 0;
+        }
+        
+        .modal-row .player-name {
+            flex: 0 0 40%;
+            text-align: left;
+        }
+        
+        .modal-row .score-buttons {
+            flex: 0 0 40%;
+            display: flex;
+            gap: 5px;
+            justify-content: center;
+            margin: 0;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        
+        .modal-row .dropout-section {
+            flex: 0 0 10%;
+            position: static;
+            margin-top: 0;
+            margin-left: auto;
+        }
+        
+        .score-buttons {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+        
+        .draw-section {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            background: var(--light-color);
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(74, 144, 226, 0.1);
+            position: relative;
+            min-height: 50px;
+            box-sizing: border-box;
+        }
+        
+        .draw-section .modal-row {
+            height: 100%;
+        }
+
+        /* Verbessere den Stil für Fehlermeldungen, um besser sichtbar zu sein */
+        .error-message-box {
+            display: none;
+            background-color: rgba(231, 76, 60, 0.15);
+            border-left: 4px solid var(--danger-color);
+            color: var(--danger-color);
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            font-weight: 600;
+            text-align: center;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        /* Animation zum Hervorheben der Fehlermeldung - mit fester Farbe statt dynamischer Transparenz */
+        @keyframes highlightError {
+            0%, 100% { background-color: #fadbd8; }
+            50% { background-color: #f5b7b1; }
+        }
+        
+        .error-highlight {
+            animation: highlightError 1s ease;
         }
     </style>
     <script>
@@ -942,70 +1057,124 @@
         }
         
         // Funktion zum Initialisieren des Modals
-        function openResultModal(table, player1, player2, tableSize, score1, score2, dropout1, dropout2, currentRound, displayPlayer1, displayPlayer2) {
+        function openResultModal(table, player1, player2, tableSize, score1, score2, dropout1, dropout2, currentRound, display1, display2, score_draws) {
             document.getElementById('modalTable').value = table;
             document.getElementById('modalPlayer1').value = player1;
             document.getElementById('modalPlayer2').value = player2;
             document.getElementById('modalTableSize').value = tableSize;
+            document.getElementById('modalScore1').value = score1 || '0';
+            document.getElementById('modalScore2').value = score2 || '0';
+            document.getElementById('modalScoreDraws').value = score_draws || '0';  // Verwende den übergebenen Wert
             document.getElementById('modalCurrentRound').value = currentRound;
+            document.getElementById('modalDropout1').value = dropout1 || 'false';
+            document.getElementById('modalDropout2').value = dropout2 || 'false';
             
-            // Automatisch Ergebnis setzen für BYE-Matches
+            // Zeige Spielernamen an (mit oder ohne 🦵-Symbol)
+            const player1Name = cleanPlayerName(display1 || player1);
+            const player2Name = cleanPlayerName(display2 || player2);
+            
+            document.getElementById('modalPlayer1Name').textContent = player1Name;
+            
+            // Für Spieler 2, prüfe ob es ein BYE ist
             if (player2 === "BYE") {
-                score1 = "2";
-                score2 = "0";
-            }
-            
-            // Zeige die Anzeigenamen an (mit 🦵 Symbol wenn markiert)
-            document.getElementById('modalPlayer1Name').textContent = displayPlayer1 ? displayPlayer1.replace(" 🦵", "") : player1;
-            
-            // Für Spieler 2, zeige 🦵 bei BYE an
-            if (player2 === "BYE") {
-                document.getElementById('modalPlayer2Name').textContent = "🦵";
+                document.getElementById('modalPlayer2Name').textContent = "BYE";
+                document.getElementById('player2-info').classList.add('leg-marked');
+                
+                // Deaktiviere Ergebnis-Buttons für BYE
+                const score2Buttons = document.querySelectorAll('#score2Buttons .score-button');
+                score2Buttons.forEach(button => {
+                    button.disabled = true;
+                    button.classList.remove('selected');
+                    if (button.textContent === "0") {
+                        button.classList.add('selected');
+                    }
+                });
+                
+                // Deaktiviere Unentschieden-Buttons für BYE
+                const scoreDrawsButtons = document.querySelectorAll('#scoreDrawsButtons .score-button');
+                scoreDrawsButtons.forEach(button => {
+                    button.disabled = true;
+                    button.classList.remove('selected');
+                    if (button.textContent === "0") {
+                        button.classList.add('selected');
+                    }
+                });
+                
+                // Setze Ergebnisse für BYE
+                document.getElementById('modalScore1').value = "2";
+                document.getElementById('modalScore2').value = "0";
+                document.getElementById('modalScoreDraws').value = "0";
+                
+                // Markiere die entsprechenden Buttons als ausgewählt
+                selectButton('modalScore1', "2");
+                selectButton('modalScore2', "0");
+                selectButton('modalScoreDraws', "0");
             } else {
-                document.getElementById('modalPlayer2Name').textContent = displayPlayer2 ? displayPlayer2.replace(" 🦵", "") : player2;
+                document.getElementById('modalPlayer2Name').textContent = player2Name;
+                document.getElementById('player2-info').classList.remove('leg-marked');
+                
+                // Aktiviere Ergebnis-Buttons für normales Match
+                const score2Buttons = document.querySelectorAll('#score2Buttons .score-button');
+                score2Buttons.forEach(button => {
+                    button.disabled = false;
+                });
+                
+                // Aktiviere Unentschieden-Buttons für normales Match
+                const scoreDrawsButtons = document.querySelectorAll('#scoreDrawsButtons .score-button');
+                scoreDrawsButtons.forEach(button => {
+                    button.disabled = false;
+                });
+                
+                // Markiere die entsprechenden Buttons als ausgewählt
+                selectButton('modalScore1', score1 || "0");
+                selectButton('modalScore2', score2 || "0");
+                selectButton('modalScoreDraws', score_draws || "0");  // Verwende den übergebenen Wert
             }
             
-            // Setze die Scores
-            document.getElementById('modalScore1').value = score1 || "0";
-            document.getElementById('modalScore2').value = score2 || "0";
-            
-            // Aktualisiere die Score-Buttons
-            updateScoreButtonsSelection('score1Buttons', score1 || "0");
-            updateScoreButtonsSelection('score2Buttons', score2 || "0");
-            
-            // Setze die Dropout-Status
-            document.getElementById('modalDropout1').value = dropout1 || "false";
-            document.getElementById('modalDropout2').value = dropout2 || "false";
-            
-            // Zeige das 🦵-Symbol für markierte Spieler
-            document.getElementById('modalPlayer1Leg').style.display = dropout1 === "true" ? "inline" : "none";
-            document.getElementById('modalPlayer2Leg').style.display = dropout2 === "true" ? "inline" : "none";
-            
-            // Aktualisiere die Dropdown-Buttons (direkt statt mit updateDropoutButtonAppearance)
-            const dropoutButton1 = document.querySelector('#player1-info .dropout-button');
-            const dropoutButton2 = document.querySelector('#player2-info .dropout-button');
-            
-            if (dropout1 === "true") {
-                dropoutButton1.textContent = '🦵';
-                dropoutButton1.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+            // Prüfen ob Spieler als Dropout markiert sind
+            if (dropout1 === 'true') {
+                const dropoutButton = document.querySelector('#player1-info .dropout-button');
+                dropoutButton.textContent = '🦵';
+                dropoutButton.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+                document.getElementById('player1-info').classList.add('dropout');
+                document.getElementById('modalPlayer1Leg').style.display = 'inline';
             } else {
-                dropoutButton1.textContent = '🦵';
-                dropoutButton1.style.background = 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)';
+                const dropoutButton = document.querySelector('#player1-info .dropout-button');
+                dropoutButton.textContent = '🦵';
+                dropoutButton.style.background = 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)';
+                document.getElementById('player1-info').classList.remove('dropout');
+                document.getElementById('modalPlayer1Leg').style.display = 'none';
             }
             
-            if (dropout2 === "true") {
-                dropoutButton2.textContent = '🦵';
-                dropoutButton2.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+            if (dropout2 === 'true' && player2 !== "BYE") {
+                const dropoutButton = document.querySelector('#player2-info .dropout-button');
+                dropoutButton.textContent = '🦵';
+                dropoutButton.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+                document.getElementById('player2-info').classList.add('dropout');
+                document.getElementById('modalPlayer2Leg').style.display = 'inline';
             } else {
-                dropoutButton2.textContent = '🦵';
-                dropoutButton2.style.background = 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)';
+                const dropoutButton = document.querySelector('#player2-info .dropout-button');
+                dropoutButton.textContent = '🦵';
+                dropoutButton.style.background = 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)';
+                document.getElementById('player2-info').classList.remove('dropout');
+                document.getElementById('modalPlayer2Leg').style.display = 'none';
             }
             
-            // Setze den Modal-Titel
-            document.getElementById('modalTitle').textContent = `Tisch ${table} - Ergebnis eingeben`;
-            
-            // Öffne das Modal
             document.getElementById('resultModal').style.display = 'block';
+
+            // Speichere die aktuelle Scrollposition
+            localStorage.setItem('scrollPosition', window.scrollY);
+        }
+
+        // Hilfsfunktion zum Markieren des entsprechenden Score-Buttons
+        function selectButton(inputId, value) {
+            const buttons = document.querySelectorAll(`[onclick="selectScore(this, '${inputId}')"]`);
+            buttons.forEach(button => {
+                button.classList.remove('selected');
+                if (button.textContent === value) {
+                    button.classList.add('selected');
+                }
+            });
         }
 
         function closeResultModal() {
@@ -1039,32 +1208,78 @@
             }
         }
         
-        // Event-Listener für das Formular
-        document.getElementById('resultForm').addEventListener('submit', function(event) {
-            // Scrollposition speichern
-            localStorage.setItem('scrollPosition', window.scrollY.toString());
-            console.log("Scrollposition gespeichert:", window.scrollY);
+        // Verbesserte Validierungsfunktion mit visueller Hervorhebung
+        function validateResultForm() {
+            const score1 = parseInt(document.getElementById('modalScore1').value) || 0;
+            const score2 = parseInt(document.getElementById('modalScore2').value) || 0;
+            const player2 = document.getElementById('modalPlayer2').value;
+            const errorBox = document.getElementById('errorMessageBox');
             
-            event.preventDefault();
+            // Fehlermeldung zurücksetzen
+            errorBox.style.display = "none";
+            errorBox.classList.remove('error-highlight');
             
-            const table = document.getElementById('modalTable').value;
-            const score1 = document.getElementById('modalScore1').value;
-            const score2 = document.getElementById('modalScore2').value;
+            // Prüfe, ob beide Spieler 2 Siege haben
+            if (score1 === 2 && score2 === 2) {
+                errorBox.textContent = "Ungültige Eingabe: Beide Spieler können nicht 2 Siege haben.";
+                errorBox.style.display = "block";
+                errorBox.classList.add('error-highlight');
+                return false;
+            }
             
-            // Aktualisiere das Ergebnis in der Tabelle
-            updateMatchResult(table, score1, score2);
+            // BYE-Matches haben immer das Ergebnis 2-0
+            if (player2 === "BYE" && (score1 !== 2 || score2 !== 0)) {
+                errorBox.textContent = "BYE-Matches haben immer das Ergebnis 2-0.";
+                errorBox.style.display = "block";
+                errorBox.classList.add('error-highlight');
+                return false;
+            }
             
-            // Schließe das Modal
-            closeResultModal();
-            
-            // Sende das Formular ab
-            this.submit();
-        });
-
-        /* Hilfsfunktion um zu prüfen, ob ein Spieler mit 🦵 markiert ist (nur anhand der Anzeige) */
-        function isLegMarked(playerName) {
-            return playerName && playerName.includes('🦵');
+            return true;
         }
+        
+        // Verbessern des Event-Listeners für das Formular
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('resultForm');
+            if (form) {
+                form.addEventListener('submit', function(event) {
+                    // Validiere das Formular
+                    if (!validateResultForm()) {
+                        event.preventDefault(); // Verhindere das Absenden des Formulars
+                        console.log("Formularvalidierung fehlgeschlagen!");
+                        return false;
+                    }
+                    
+                    // Scrollposition speichern
+                    localStorage.setItem('scrollPosition', window.scrollY.toString());
+                    console.log("Scrollposition gespeichert:", window.scrollY);
+                    
+                    const table = document.getElementById('modalTable').value;
+                    const score1 = document.getElementById('modalScore1').value;
+                    const score2 = document.getElementById('modalScore2').value;
+                    
+                    // Aktualisiere das Ergebnis in der Tabelle
+                    updateMatchResult(table, score1, score2);
+                    
+                    // Schließe das Modal
+                    closeResultModal();
+                    
+                    // Formular wird normal abgesendet
+                    return true;
+                });
+            }
+        });
+        
+        // Füge ein Echtzeit-Validierung für die Score-Buttons hinzu
+        document.addEventListener('DOMContentLoaded', function() {
+            const scoreButtons = document.querySelectorAll('.score-button');
+            
+            scoreButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    setTimeout(validateResultForm, 100); // Kleine Verzögerung für die Aktualisierung der Werte
+                });
+            });
+        });
     </script>
 </head>
 <body>
@@ -1083,16 +1298,24 @@
         </div>
     </div>
 
-    <div class="control-buttons" style="margin: 20px 0; display: flex; justify-content: space-between;">
+    <div class="control-buttons" style="margin: 20px 0; display: flex; justify-content: space-between; align-items: flex-start;">
         <div>
-            <form method="POST" action="{{ url_for('main.next_round') }}" style="display:inline;">
-                <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Nächste Runde</button>
-            </form>
+            {% if tournament_ended %}
+                <div class="alert" style="color: #721c24; background-color: #f8d7da; border-color: #f5c6cb; padding: 12px; border-radius: 6px; display: inline-block; margin-right: 20px;">
+                    <strong>Hinweis:</strong> Dieses Turnier wurde bereits beendet. Sie können die Rundenansicht weiterhin nutzen, aber keine Änderungen mehr vornehmen.
+                </div>
+            {% else %}
+                <form method="POST" action="{{ url_for('main.next_round') }}" style="display:inline;">
+                    <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Nächste Runde</button>
+                </form>
+            {% endif %}
         </div>
-        <div style="display: flex; gap: 1em;">
-            <form method="POST" action="/end_tournament" style="display:inline;">
-                <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Turnier beenden</button>
-            </form>
+        <div style="display: flex; gap: 1em; margin-left: {% if tournament_ended %}20px{% else %}0{% endif %};">
+            {% if not tournament_ended %}
+                <form method="POST" action="/end_tournament" style="display:inline;">
+                    <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Turnier beenden</button>
+                </form>
+            {% endif %}
             <form method="GET" action="/start_tournament" style="display:inline;">
                 <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Neues Turnier starten</button>
             </form>
@@ -1106,33 +1329,36 @@
         Tischgrössen: {% for match in matches %}{{ match.table_size }} {% endfor %}
         -->
         
-        <!-- Gruppiere Matches nach Tischgrösse in einer Hilfsstruktur -->
+        <!-- Gruppiere Matches nach group_key (zusammengesetzter Schlüssel) in einer Hilfsstruktur -->
         {% set grouped_matches = {} %}
         {% for match in matches %}
-            {% set table_size = match.table_size %}
-            {% if table_size not in grouped_matches %}
-                {% set _ = grouped_matches.__setitem__(table_size, []) %}
-    {% endif %}
-            {% set _ = grouped_matches[table_size].append(match) %}
+            {% set group_key = match.group_key|default(match.table_size) %}
+            {% if group_key not in grouped_matches %}
+                {% set _ = grouped_matches.__setitem__(group_key, []) %}
+            {% endif %}
+            {% set _ = grouped_matches[group_key].append(match) %}
         {% endfor %}
         
-        <!-- Iteriere über alle Tischgrössen in den gruppierten Matches -->
-        {% for table_size, matches_in_size in grouped_matches.items() %}
+        <!-- Iteriere über alle group_keys in den gruppierten Matches -->
+        {% for group_key, matches_in_group in grouped_matches.items() %}
+            {% set table_size = group_key.split('-')[0] if '-' in group_key else group_key %}
+            {% set group_num = group_key.split('-')[1] if '-' in group_key else '1' %}
             <div class="table-group-section">
                 <div class="table-group-header">
-                    🎲 {{ table_size }}-Spieler Tisch
+                    🎲 {{ table_size }}-Spieler Tisch {% if '-' in group_key %}#{{ group_num }}{% endif %}
                 </div>
 
                 <div class="matches-container">
                     <h3>Matches</h3>
                     <div class="match-grid">
-                        {% for match in matches_in_size %}
+                        {% for match in matches_in_group %}
                             {% set has_leg_symbol1 = '🦵' in (match.display_player1 or '') %}
                             {% set has_leg_symbol2 = '🦵' in (match.display_player2 or '') %}
                             {% set clean_player1 = (match.display_player1 or match.player1) | replace(" 🦵", "") %}
                             {% set clean_player2 = (match.display_player2 or match.player2) | replace(" 🦵", "") %}
                             
                             <div class="match-card" data-table-size="{{ table_size }}" data-table="{{ match.table }}" 
+                                {% if not tournament_ended %}
                                 onclick="openResultModal(
                                     '{{ match.table }}', 
                                     '{{ match.player1 }}', 
@@ -1144,8 +1370,13 @@
                                     '{{ match.dropout2 }}',
                                     '{{ current_round }}',
                                     '{{ match.display_player1 }}',
-                                    '{{ match.display_player2 }}'
-                                )">
+                                    '{{ match.display_player2 }}',
+                                    '{{ match.score_draws }}'
+                                )"
+                                {% else %}
+                                style="cursor: default;"
+                                {% endif %}
+                                >
                                 <div class="match-content">
                                     <!-- Spieler 1 -->
                                     {% if has_leg_symbol1 %}
@@ -1188,6 +1419,13 @@
                                             <div class="score">{{ match.score2 or '0' }}</div>
                                         </div>
                                     {% endif %}
+                                    
+                                    <!-- Anzeige der Unentschieden, falls vorhanden -->
+                                    {% if match.score_draws and match.score_draws|int > 0 %}
+                                    <div class="draw-indicator">
+                                        Draws: {{ match.score_draws }}
+                                    </div>
+                                    {% endif %}
                                 </div>
                             </div>
                         {% endfor %}
@@ -1210,7 +1448,7 @@
                     <tbody>
                         {% set rank = namespace(value=1) %}
                         {% set players_in_table = [] %}
-                        {% for match in matches_in_size %}
+                        {% for match in matches_in_group %}
                             {% if match.player1 not in players_in_table %}
                                 {% set _ = players_in_table.append(match.player1) %}
                             {% endif %}
@@ -1254,39 +1492,57 @@
                 <input type="hidden" id="modalDropout2" name="dropout2" value="false">
                 
                 <div class="player-info" id="player1-info">
-                    <span class="player-name" id="modalPlayer1Name"></span>
-                    <span class="leg-indicator" id="modalPlayer1Leg" style="display: none;">🦵</span>
-                    <div class="score-section">
+                    <div class="modal-row">
+                        <span class="player-name" id="modalPlayer1Name"></span>
+                        <span class="leg-indicator" id="modalPlayer1Leg" style="display: none;">🦵</span>
                         <div class="score-buttons" id="score1Buttons">
-                            {% for i in range(3) %}
-                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScore1')">{{ i }}</button>
-                            {% endfor %}
+                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScore1')">0</button>
+                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScore1')">1</button>
+                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScore1')">2</button>
                         </div>
-                        <input type="hidden" name="score1" id="modalScore1" value="0">
+                        <div class="dropout-section">
+                            <button type="button" class="dropout-button" onclick="toggleDropout('modalDropout1', this)">🦵</button>
+                        </div>
                     </div>
-                    <div class="dropout-section">
-                        <button type="button" class="dropout-button" onclick="toggleDropout('modalDropout1', this)">🦵</button>
-                    </div>
+                    <input type="hidden" name="score1" id="modalScore1" value="0">
                 </div>
 
                 <div class="player-info" id="player2-info">
-                    <span class="player-name" id="modalPlayer2Name"></span>
-                    <span class="leg-indicator" id="modalPlayer2Leg" style="display: none;">🦵</span>
-                    <div class="score-section">
+                    <div class="modal-row">
+                        <span class="player-name" id="modalPlayer2Name"></span>
+                        <span class="leg-indicator" id="modalPlayer2Leg" style="display: none;">🦵</span>
                         <div class="score-buttons" id="score2Buttons">
-                            {% for i in range(3) %}
-                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScore2')">{{ i }}</button>
-                            {% endfor %}
+                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScore2')">0</button>
+                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScore2')">1</button>
+                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScore2')">2</button>
                         </div>
-                        <input type="hidden" name="score2" id="modalScore2" value="0">
+                        <div class="dropout-section">
+                            <button type="button" class="dropout-button" onclick="toggleDropout('modalDropout2', this)">🦵</button>
+                        </div>
                     </div>
-                    <div class="dropout-section">
-                        <button type="button" class="dropout-button" onclick="toggleDropout('modalDropout2', this)">🦵</button>
-                    </div>
+                    <input type="hidden" name="score2" id="modalScore2" value="0">
                 </div>
-                
-                <button type="submit" class="submit-button">Ergebnis speichern</button>
-    </form>
+
+                <!-- Draws-Sektion -->
+                <div class="draw-section">
+                    <div class="modal-row">
+                        <span class="player-name">Draws</span>
+                        <div class="score-buttons" id="scoreDrawsButtons">
+                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScoreDraws')">0</button>
+                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScoreDraws')">1</button>
+                            <button type="button" class="score-button" onclick="selectScore(this, 'modalScoreDraws')">2</button>
+                        </div>
+                    </div>
+                    <input type="hidden" name="score_draws" id="modalScoreDraws" value="0">
+                </div>
+
+                <!-- Fehlermeldungsfeld - jetzt direkt vor dem Button platziert -->
+                <div class="error-message-box" id="errorMessageBox"></div>
+
+                <div class="control-buttons">
+                    <button type="submit" class="submit-button">Ergebnis speichern</button>
+                </div>
+            </form>
         </div>
     </div>
 

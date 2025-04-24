@@ -160,9 +160,62 @@ def find_all_valid_groupings(player_count, allowed_sizes):
     print(f"Gefundene Gruppierungen: {valid_groupings}")
     return valid_groupings
 
+def get_last_tournaments(limit=5):
+    """Lädt die letzten abgeschlossenen Turniere aus dem tournament_results Verzeichnis"""
+    tournament_results_dir = "tournament_results"
+    if not os.path.exists(tournament_results_dir):
+        return []
+    
+    # Alle Turnier-Dateien finden
+    tournament_files = []
+    for file in os.listdir(tournament_results_dir):
+        if file.endswith("_results.json"):
+            file_path = os.path.join(tournament_results_dir, file)
+            try:
+                # Dateiinformationen laden
+                stat_info = os.stat(file_path)
+                modified_time = stat_info.st_mtime
+                tournament_files.append((file_path, modified_time))
+            except Exception as e:
+                print(f"Fehler beim Laden von {file}: {str(e)}")
+    
+    # Nach Änderungsdatum sortieren (neueste zuerst)
+    tournament_files.sort(key=lambda x: x[1], reverse=True)
+    
+    # Die letzten X Turniere laden
+    last_tournaments = []
+    for file_path, _ in tournament_files[:limit]:
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                tournament_data = json.load(f)
+                
+                # Finde den Gewinner (erster Eintrag im Leaderboard)
+                winner_name = "Unbekannt"
+                if tournament_data.get('final_leaderboard') and len(tournament_data['final_leaderboard']) > 0:
+                    winner_name = tournament_data['final_leaderboard'][0][0]
+                
+                # Tournament-ID aus dem Dateinamen extrahieren
+                tournament_id = os.path.basename(file_path).replace('_results.json', '')
+                
+                # Erstelle ein kompaktes Turnierformat
+                tournament_info = {
+                    'id': tournament_id,
+                    'winner': winner_name,
+                    'date': tournament_data.get('tournament_data', {}).get('end_date', 'Unbekannt'),
+                    'rounds': tournament_data.get('tournament_data', {}).get('total_rounds', 0),
+                    'leaderboard': tournament_data.get('final_leaderboard', [])
+                }
+                last_tournaments.append(tournament_info)
+        except Exception as e:
+            print(f"Fehler beim Verarbeiten von {file_path}: {str(e)}")
+    
+    return last_tournaments
+
 @main.route("/", methods=["GET"])
 def index():
-    return render_template("index.html", players_text="")
+    # Lade die letzten 5 Turniere für die Startseite
+    last_tournaments = get_last_tournaments(5)
+    return render_template("index.html", players_text="", last_tournaments=last_tournaments)
 
 @main.route("/api/groupings", methods=["POST"])
 def api_groupings():
@@ -244,17 +297,24 @@ def pair():
         # Speichere die Spielergruppen in der Session und in einer JSON-Datei
         player_groups = {}
         
+        # Zähler für gleiche Tischgrößen
+        table_size_counters = {}
+        
         for group_size in selected_grouping:
             # Hole die Spieler für diese Gruppe
             group = players[start:start + group_size]
             group_players = group.copy()  # Kopiere die Liste für die Session
             
-            # Wenn die Tischgröße bereits vorhanden ist, füge die Spieler hinzu statt zu überschreiben
-            size_key = str(group_size)
-            if size_key in player_groups:
-                player_groups[size_key].extend(group_players)
+            # Erstelle einen zusammengesetzten Schlüssel mit Zähler
+            size_str = str(group_size)
+            if size_str in table_size_counters:
+                table_size_counters[size_str] += 1
             else:
-                player_groups[size_key] = group_players  # Speichere als String-Key
+                table_size_counters[size_str] = 1
+                
+            # Zusammengesetzter Schlüssel: Tischgröße-Zähler
+            composite_key = f"{size_str}-{table_size_counters[size_str]}"
+            player_groups[composite_key] = group_players
                 
             pairings.append(group)
             start += group_size
@@ -273,7 +333,8 @@ def pair():
                         "player2": p2,
                         "score1": "",  # Leerer String statt '0'
                         "score2": "",  # Leerer String statt '0'
-                        "table_size": str(group_size)  # Speichere als String
+                        "table_size": str(group_size),  # Speichere als String
+                        "group_key": composite_key  # Speichere den zusammengesetzten Schlüssel
                     })
                     table_nr += 1
 
@@ -293,7 +354,7 @@ def pair():
         round_file = os.path.join(rounds_dir, f'round_{current_round}.csv')
         
         with open(round_file, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'table_size'])
+            writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'table_size', 'group_key'])
             writer.writeheader()
             writer.writerows(match_list)
         
@@ -325,6 +386,13 @@ def save_results():
     tournament_id = session.get("tournament_id", "unknown")
     if not tournament_id:
         return redirect(url_for("main.index"))
+    
+    # Prüfe, ob das Turnier bereits beendet wurde
+    tournament_ended = session.get("tournament_ended", False)
+    if tournament_ended:
+        # Wenn das Turnier bereits beendet ist, leite zur aktuellen Runde um
+        current_round = request.form.get("current_round", "1")
+        return redirect(url_for("main.show_round", round_number=int(current_round)))
 
     print("\n\n=== SAVE_RESULTS AUFGERUFEN ===")
     print(f"Tournament ID: {tournament_id}")
@@ -335,12 +403,13 @@ def save_results():
     player2 = request.form.get("player2")
     score1 = request.form.get("score1", "0")
     score2 = request.form.get("score2", "0")
+    score_draws = request.form.get("score_draws", "0")  # Neues Feld für Unentschieden
     current_round = request.form.get("current_round", "1")
     dropout1 = request.form.get("dropout1") == "true"
     dropout2 = request.form.get("dropout2") == "true"
     table_size = request.form.get("table_size", "6")  # Standardwert 6, falls nicht angegeben
     
-    print(f"Daten aus Formular: Tisch {table}, {player1} vs {player2}, Ergebnis: {score1}-{score2}, Tischgrösse: {table_size}, Runde: {current_round}")
+    print(f"Daten aus Formular: Tisch {table}, {player1} vs {player2}, Ergebnis: {score1}-{score2}-{score_draws}, Tischgrösse: {table_size}, Runde: {current_round}")
     print(f"Dropout1: {dropout1}, Dropout2: {dropout2}")
     
     # In results.csv speichern
@@ -352,8 +421,8 @@ def save_results():
         with open(results_file, "a", newline="", encoding="utf-8") as csvfile:
             writer = csv.writer(csvfile)
             if not file_exists:
-                writer.writerow(["Tournament", "Timestamp", "Table", "Player 1", "Score 1", "Player 2", "Score 2"])
-            writer.writerow([tournament_id, datetime.now().isoformat(), table, player1, score1, player2, score2])
+                writer.writerow(["Tournament", "Timestamp", "Table", "Player 1", "Score 1", "Player 2", "Score 2", "Draws"])
+            writer.writerow([tournament_id, datetime.now().isoformat(), table, player1, score1, player2, score2, score_draws])
         print(f"Ergebnis in results.csv gespeichert")
     except Exception as e:
         print(f"Fehler beim Speichern in results.csv: {e}")
@@ -382,7 +451,8 @@ def save_results():
                 print(f"Feldnamen in CSV: {fieldnames}")
                 
                 # Stelle sicher, dass alle benötigten Felder in fieldnames sind
-                required_fields = ['table', 'player1', 'player2', 'score1', 'score2', 'table_size', 'dropout1', 'dropout2', 'display_player1', 'display_player2']
+                required_fields = ['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'table_size', 
+                                  'dropout1', 'dropout2', 'display_player1', 'display_player2', 'group_key']
                 for field in required_fields:
                     if field not in fieldnames:
                         fieldnames.append(field)
@@ -411,6 +481,7 @@ def save_results():
                 # Aktualisiere alle relevanten Werte
                 match["score1"] = score1
                 match["score2"] = score2
+                match["score_draws"] = score_draws  # Neues Feld für Unentschieden
                 match["dropout1"] = "true" if dropout1 else "false"
                 match["dropout2"] = "true" if dropout2 else "false"
                 
@@ -461,7 +532,7 @@ def save_results():
         print("\nAlle Matches, die gespeichert werden:")
         for i, match in enumerate(matches):
             table_size_value = match.get("table_size", "nicht gesetzt")
-            print(f"Match {i+1}: Tisch {match.get('table', '')}, {match.get('player1', '')} vs {match.get('player2', '')}, Score: {match.get('score1', '')}-{match.get('score2', '')}, Tischgrösse: {table_size_value}")
+            print(f"Match {i+1}: Tisch {match.get('table', '')}, {match.get('player1', '')} vs {match.get('player2', '')}, Score: {match.get('score1', '')}-{match.get('score2', '')}-{match.get('score_draws', '0')}, Tischgrösse: {table_size_value}")
         
         # Datei zurückschreiben
         try:
@@ -504,11 +575,18 @@ def calculate_mtg_stats(results_file, tournament_id):
                 p1, p2 = row["Player 1"], row["Player 2"]
                 s1, s2 = int(row["Score 1"]), int(row["Score 2"])
                 
-                # Game Wins berechnen
+                # Unentschieden berücksichtigen, falls vorhanden
+                draws = 0
+                if "Draws" in row and row["Draws"]:
+                    draws = int(row["Draws"])
+                
+                # Game Wins und Draws berechnen
                 stats[p1]['game_wins'] += s1
                 stats[p1]['game_losses'] += s2
+                stats[p1]['game_draws'] += draws
                 stats[p2]['game_wins'] += s2
                 stats[p2]['game_losses'] += s1
+                stats[p2]['game_draws'] += draws
                 
                 # Match Wins berechnen
                 if s1 > s2:
@@ -520,6 +598,7 @@ def calculate_mtg_stats(results_file, tournament_id):
                     stats[p2]['points'] += 3
                     stats[p1]['match_losses'] += 1
                 else:
+                    # Bei Gleichstand als Unentschieden werten
                     stats[p1]['match_draws'] += 1
                     stats[p2]['match_draws'] += 1
                     stats[p1]['points'] += 1
@@ -594,6 +673,18 @@ def next_round():
     tournament_id = session.get("tournament_id")
     if not tournament_id:
         return redirect(url_for("main.index"))
+    
+    # Prüfe, ob das Turnier bereits beendet wurde
+    tournament_ended = session.get("tournament_ended", False)
+    if tournament_ended:
+        # Wenn das Turnier bereits beendet ist, leite zur letzten Runde um
+        data_dir = os.path.join("data", tournament_id)
+        rounds_dir = os.path.join(data_dir, "rounds")
+        if os.path.exists(rounds_dir):
+            total_rounds = len([f for f in os.listdir(rounds_dir) if f.startswith("round_") and f.endswith(".csv")])
+            return redirect(url_for("main.show_round", round_number=total_rounds))
+        else:
+            return redirect(url_for("main.index"))
 
     data_dir = os.path.join("data", tournament_id)
     rounds_dir = os.path.join(data_dir, "rounds")
@@ -629,10 +720,13 @@ def next_round():
     table_nr = 1
 
     # Erstelle Paarungen für jede Gruppe separat
-    for group_size, group_players in player_groups.items():
+    for group_key, group_players in player_groups.items():
+        # Extrahiere die Tischgröße aus dem zusammengesetzten Schlüssel
+        table_size = group_key.split('-')[0]
+        
         # Entferne markierte Spieler aus der aktiven Liste
         active_players = [p for p in group_players if not is_player_marked(p)]
-        print(f"Aktive Spieler in Gruppe {group_size}: {active_players}")
+        print(f"Aktive Spieler in Gruppe {group_key}: {active_players}")
         
         # Sortiere aktive Spieler nach Punkten für bessere Paarungen
         sorted_players = []
@@ -656,10 +750,12 @@ def next_round():
                 "player2": "BYE",
                 "score1": "2",  # Automatischer Sieg für den Spieler
                 "score2": "0",
-                "table_size": group_size
+                "score_draws": "0",  # Keine Unentschieden bei BYE-Matches
+                "table_size": table_size,
+                "group_key": group_key  # Speichere den zusammengesetzten Schlüssel
             })
             table_nr += 1
-            print(f"BYE-Match: {bye_player} vs BYE mit automatischem Ergebnis 2:0")
+            print(f"BYE-Match: {bye_player} vs BYE mit automatischem Ergebnis 2:0:0")
         
         # Matche die restlichen Spieler
         for i in range(0, len(sorted_players), 2):
@@ -690,7 +786,9 @@ def next_round():
                     "player2": p2,
                     "score1": "",
                     "score2": "",
-                    "table_size": group_size
+                    "score_draws": "",  # Leeres Feld für Unentschieden
+                    "table_size": table_size,
+                    "group_key": group_key  # Speichere den zusammengesetzten Schlüssel
                 })
                 table_nr += 1
                 print(f"Match: {p1} vs {p2}")
@@ -719,8 +817,8 @@ def next_round():
             # Debug-Ausgabe für Spielernamen in der Runde
             print(f"Match: {match['display_player1']} vs {match['display_player2']} (Original: {match['player1']} vs {match['player2']})")
                 
-        # Verwende erweiterte Feldliste mit display_player Feldern
-        writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'table_size', 'display_player1', 'display_player2'])
+        # Verwende erweiterte Feldliste mit display_player Feldern und group_key
+        writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'table_size', 'group_key', 'display_player1', 'display_player2'])
         writer.writeheader()
         writer.writerows(match_list)
 
@@ -731,7 +829,7 @@ def next_round():
     with open(results_file, "a", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         if not file_exists:
-            writer.writerow(["Tournament", "Timestamp", "Table", "Player 1", "Score 1", "Player 2", "Score 2"])
+            writer.writerow(["Tournament", "Timestamp", "Table", "Player 1", "Score 1", "Player 2", "Score 2", "Draws"])
         
         # Speichere BYE Matches automatisch
         for match in match_list:
@@ -743,7 +841,8 @@ def next_round():
                     match["player1"],
                     "2",  # Automatischer Sieg
                     match["player2"],
-                    "0"
+                    "0",
+                    "0"   # Keine Unentschieden bei BYE
                 ])
 
     # Leite zur show_round Route weiter
@@ -831,21 +930,33 @@ def continue_tournament():
     for player, player_stats in stats.items():
         omw = calculate_opponents_match_percentage(player, stats)
         gw = calculate_game_win_percentage(player_stats)
+        ogw = calculate_opponents_game_win_percentage(player, stats)
+        
+        # Formatiere das Ergebnis als Match-Ergebnisse (Wins-Losses-Draws)
+        # Verwende die Match-Siege und -Niederlagen statt der Spielergebnisse
+        if player_stats['draws'] > 0:
+            game_score = f"{player_stats['wins']} - {player_stats['losses']} - {player_stats['draws']}"
+        else:
+            game_score = f"{player_stats['wins']} - {player_stats['losses']}"
+            
         leaderboard.append((
             player,
             player_stats['points'],
-            f"{player_stats['total_wins']} - {player_stats['total_losses']}",  # Gesamtsumme aller Siege und Niederlagen
+            game_score,  # Format: Match-Wins - Match-Losses - Match-Draws
             f"{omw:.2%}",
-            f"{gw:.2%}"
+            f"{gw:.2%}",
+            f"{ogw:.2%}"
         ))
 
-    # Sortiere nach Punkten, OMW% und GW%
-    leaderboard.sort(key=lambda x: (-int(x[1]), -float(x[3].replace('%', '')), -float(x[4].replace('%', '')), x[0]))
-
-    return render_template("pair.html", 
-                         pairings=group_list, 
-                         matches=match_list, 
-                         leaderboard=leaderboard)
+    # Sortiere nach Punkten, OMW%, GW% und OGW% (gemäß der vorgegebenen Reihenfolge der Tiebreaker)
+    leaderboard.sort(key=lambda x: (
+        -int(x[1]),  # Punkte (absteigend)
+        -float(x[3].replace('%', '')),  # OMW% (absteigend)
+        -float(x[4].replace('%', '')),  # GW% (absteigend)
+        -float(x[5].replace('%', '')),  # OGW% (absteigend)
+        x[0]  # Bei Gleichstand alphabetisch nach Namen (aufsteigend)
+    ))
+    return leaderboard
 
 @main.route("/end_tournament", methods=["POST"])
 def end_tournament():
@@ -874,7 +985,8 @@ def end_tournament():
         "id": tournament_id,
         "end_date": datetime.now().strftime("%d.%m.%Y %H:%M"),
         "total_rounds": total_rounds,
-        "player_groups": player_groups
+        "player_groups": player_groups,
+        "is_ended": True  # Markiere das Turnier als beendet
     }
     
     # Speichere die Turnierdaten für spätere Referenz
@@ -888,8 +1000,9 @@ def end_tournament():
             "final_leaderboard": final_leaderboard
         }, f)
     
-    # Entferne alle Session-Daten
-    session.clear()
+    # Speichere den Status des Turniers in der Session
+    # Entferne nicht die tournament_id, damit der Benutzer zurückkehren kann
+    session["tournament_ended"] = True
     
     return render_template(
         "tournament_end.html",
@@ -903,8 +1016,16 @@ def show_round(round_number):
     if not tournament_id:
         return redirect(url_for("main.index"))
     
+    # Prüfe, ob das Turnier als beendet markiert werden soll
+    ensure_marked_as_ended = request.args.get('ensure_marked_as_ended', 'false').lower() == 'true'
+    if ensure_marked_as_ended:
+        session["tournament_ended"] = True
+    
+    # Prüfe, ob das Turnier beendet wurde
+    tournament_ended = session.get("tournament_ended", False)
+    
     print(f"\n\n=== SHOW_ROUND AUFGERUFEN: Runde {round_number} ===")
-    print(f"Tournament ID: {tournament_id}")
+    print(f"Tournament ID: {tournament_id}, Beendet: {tournament_ended}, Ensure Marked: {ensure_marked_as_ended}")
 
     data_dir = os.path.join("data", tournament_id)
     rounds_dir = os.path.join(data_dir, "rounds")
@@ -972,7 +1093,8 @@ def show_round(round_number):
                         "player2": row[2],
                         "score1": row[3] if row[3] else "0",
                         "score2": row[4] if row[4] else "0",
-                        "table_size": row[5] if len(row) > 5 else "6"
+                        "score_draws": row[5] if len(row) > 5 and row[5] else "0",
+                        "table_size": row[6] if len(row) > 6 else "6"
                     }
                 
                 # Stelle sicher, dass alle Werte als Strings vorliegen und leere Werte einen Standardwert haben
@@ -1001,6 +1123,8 @@ def show_round(round_number):
                     match_data['dropout1'] = 'false'
                 if 'dropout2' not in match_data:
                     match_data['dropout2'] = 'false'
+                if 'score_draws' not in match_data:
+                    match_data['score_draws'] = '0'
                 
                 # Überprüfe auf display_player Felder und aktualisiere wenn nötig
                 if 'display_player1' not in match_data or not match_data['display_player1']:
@@ -1023,13 +1147,16 @@ def show_round(round_number):
                 try:
                     score1 = int(match_data['score1']) if match_data['score1'] else 0
                     score2 = int(match_data['score2']) if match_data['score2'] else 0
+                    score_draws = int(match_data['score_draws']) if match_data.get('score_draws', '') else 0
                 except ValueError:
-                    print(f"WARNUNG: Ungültige Scores für Match {match_data.get('table', '')}: {match_data.get('score1', '')}-{match_data.get('score2', '')}")
+                    print(f"WARNUNG: Ungültige Scores für Match {match_data.get('table', '')}: {match_data.get('score1', '')}-{match_data.get('score2', '')}-{match_data.get('score_draws', '')}")
                     score1 = 0
                     score2 = 0
+                    score_draws = 0
                 
                 match_data['score1'] = str(score1)
                 match_data['score2'] = str(score2)
+                match_data['score_draws'] = str(score_draws)
                 
                 # Überprüfe auf Drop-Outs
                 dropout1 = match_data.get('dropout1') == 'true'
@@ -1044,7 +1171,7 @@ def show_round(round_number):
                 
                 # Erstelle das Match-Objekt (verwende direkt das Dictionary)
                 matches.append(match_data)
-                print(f"Match geladen: Tisch {match_data['table']}, {match_data['player1']} vs {match_data['player2']}, Größe: {match_data['table_size']}")
+                print(f"Match geladen: Tisch {match_data['table']}, {match_data['player1']} vs {match_data['player2']}, Ergebnis: {match_data['score1']}-{match_data['score2']}-{match_data['score_draws']}, Größe: {match_data['table_size']}")
         
         print(f"Insgesamt {len(matches)} Matches geladen")
         
@@ -1081,7 +1208,8 @@ def show_round(round_number):
             marked=session.get("leg_players_set", []),
             player_groups=player_groups,
             total_rounds=total_rounds,
-            is_player_marked=is_player_marked
+            is_player_marked=is_player_marked,
+            tournament_ended=tournament_ended
         )
     
     except Exception as e:
@@ -1111,22 +1239,31 @@ def calculate_opponents_match_percentage(player, stats):
     total_win_percentage = 0.0
     for opponent in opponents:
         opponent_stats = stats[opponent]
-        # Verwende die in calculate_leaderboard verwendeten Schlüsselnamen
-        total_matches = opponent_stats['wins'] + opponent_stats['losses']
+        # Match Win Percentage berechnen: Siege / (Siege + Niederlagen)
+        # Unentschieden sind im Zähler nicht enthalten, aber im Nenner
+        total_matches = opponent_stats['wins'] + opponent_stats['losses'] + opponent_stats['draws']
         if total_matches > 0:
             win_percentage = opponent_stats['wins'] / total_matches
         else:
             win_percentage = 0.0
+        
+        # In den MTG-Turnierregeln gilt ein Minimum von 33.33% (1/3) für OMW
+        win_percentage = max(win_percentage, 1/3)
+        
         total_win_percentage += win_percentage
     
     return total_win_percentage / len(opponents) if opponents else 0.0
 
 def calculate_game_win_percentage(player_stats):
     """Berechnet den GW% (Game Win Percentage) für einen Spieler."""
-    total_games = player_stats['wins'] + player_stats['losses']
+    # Zähle die totalen Spiele
+    total_games = player_stats['total_wins'] + player_stats['total_losses'] + player_stats['total_draws']
     if total_games == 0:
         return 0.0
-    return player_stats['wins'] / total_games
+    
+    # Berechne Game Win Percentage: (Siege) / (Gesamtzahl aller Spiele)
+    # Unentschieden zählen nur im Nenner mit
+    return player_stats['total_wins'] / total_games
 
 def calculate_opponents_game_win_percentage(player, stats):
     """Berechnet den OGW% (Opponents Game Win Percentage) für einen Spieler."""
@@ -1150,11 +1287,15 @@ def calculate_opponents_game_win_percentage(player, stats):
     for opponent in opponents:
         opponent_stats = stats[opponent]
         # Berechne den GW% für jeden Gegner
-        total_games = opponent_stats['total_wins'] + opponent_stats['total_losses']
+        total_games = opponent_stats['total_wins'] + opponent_stats['total_losses'] + opponent_stats['total_draws']
         if total_games > 0:
             game_win_percentage = opponent_stats['total_wins'] / total_games
         else:
             game_win_percentage = 0.0
+        
+        # Minimum von 33.33% für Game Win Percentage
+        game_win_percentage = max(game_win_percentage, 1/3)
+        
         total_game_win_percentage += game_win_percentage
     
     return total_game_win_percentage / len(opponents) if opponents else 0.0
@@ -1162,7 +1303,7 @@ def calculate_opponents_game_win_percentage(player, stats):
 def calculate_leaderboard(tournament_id, up_to_round):
     """Berechnet den Leaderboard basierend auf den Ergebnissen bis zur angegebenen Runde."""
     data_dir = os.path.join("data", tournament_id)
-    stats = defaultdict(lambda: {'points': 0, 'matches': 0, 'wins': 0, 'losses': 0, 'opponents': [], 'total_wins': 0, 'total_losses': 0})
+    stats = defaultdict(lambda: {'points': 0, 'matches': 0, 'wins': 0, 'losses': 0, 'draws': 0, 'opponents': [], 'total_wins': 0, 'total_losses': 0, 'total_draws': 0})
     
     # Debug-Ausgabe
     print(f"Berechne Leaderboard für Turnier {tournament_id} bis Runde {up_to_round}")
@@ -1183,15 +1324,21 @@ def calculate_leaderboard(tournament_id, up_to_round):
                         if player2 == "BYE":
                             score1 = 2
                             score2 = 0
+                            score_draws = 0
                         # Nur wenn beide Scores eingetragen sind
                         elif match["score1"] and match["score2"]:
                             score1 = int(match["score1"])
                             score2 = int(match["score2"])
+                            
+                            # Unentschieden berücksichtigen, falls vorhanden
+                            score_draws = 0
+                            if "score_draws" in match and match["score_draws"]:
+                                score_draws = int(match["score_draws"])
                         else:
                             continue  # Überspringe Matches ohne Ergebnis
                             
                         # Debug-Ausgabe
-                        print(f"  Match: {player1} vs {player2}, Ergebnis: {score1}-{score2}")
+                        print(f"  Match: {player1} vs {player2}, Ergebnis: {score1}-{score2}-{score_draws}")
                         
                         # Aktualisiere die Gegner-Listen
                         stats[player1]['opponents'].append(player2)
@@ -1199,19 +1346,27 @@ def calculate_leaderboard(tournament_id, up_to_round):
                         
                         # Aktualisiere die Statistiken für beide Spieler
                         if score1 > score2:
-                            stats[player1]['points'] += 3
+                            stats[player1]['points'] += 3  # 3 Punkte für Sieg
                             stats[player1]['wins'] += 1
                             stats[player2]['losses'] += 1
                         elif score2 > score1:
-                            stats[player2]['points'] += 3
+                            stats[player2]['points'] += 3  # 3 Punkte für Sieg
                             stats[player2]['wins'] += 1
                             stats[player1]['losses'] += 1
+                        else:
+                            # Bei Gleichstand als Unentschieden werten
+                            stats[player1]['points'] += 1  # 1 Punkt für Unentschieden
+                            stats[player2]['points'] += 1  # 1 Punkt für Unentschieden
+                            stats[player1]['draws'] += 1
+                            stats[player2]['draws'] += 1
                         
-                        # Aktualisiere die Gesamtsiege und -niederlagen
+                        # Aktualisiere die Gesamtsiege, -niederlagen und -unentschieden
                         stats[player1]['total_wins'] += score1
                         stats[player1]['total_losses'] += score2
+                        stats[player1]['total_draws'] += score_draws
                         stats[player2]['total_wins'] += score2
                         stats[player2]['total_losses'] += score1
+                        stats[player2]['total_draws'] += score_draws
                         
                         stats[player1]['matches'] += 1
                         stats[player2]['matches'] += 1
@@ -1222,7 +1377,7 @@ def calculate_leaderboard(tournament_id, up_to_round):
 
     # Debug-Ausgabe der Statistiken
     for player, player_stats in stats.items():
-        print(f"Spieler: {player}, Punkte: {player_stats['points']}, Siege: {player_stats['wins']}, Niederlagen: {player_stats['losses']}")
+        print(f"Spieler: {player}, Punkte: {player_stats['points']}, Siege: {player_stats['wins']}, Niederlagen: {player_stats['losses']}, Unentschieden: {player_stats['draws']}")
 
     # Erstelle den Leaderboard
     leaderboard = []
@@ -1230,10 +1385,18 @@ def calculate_leaderboard(tournament_id, up_to_round):
         omw = calculate_opponents_match_percentage(player, stats)
         gw = calculate_game_win_percentage(player_stats)
         ogw = calculate_opponents_game_win_percentage(player, stats)
+        
+        # Formatiere das Ergebnis als Match-Ergebnisse (Wins-Losses-Draws)
+        # Verwende die Match-Siege und -Niederlagen statt der Spielergebnisse
+        if player_stats['draws'] > 0:
+            game_score = f"{player_stats['wins']} - {player_stats['losses']} - {player_stats['draws']}"
+        else:
+            game_score = f"{player_stats['wins']} - {player_stats['losses']}"
+            
         leaderboard.append((
             player,
             player_stats['points'],
-            f"{player_stats['total_wins']} - {player_stats['total_losses']}",  # Gesamtsumme aller Siege und Niederlagen
+            game_score,  # Format: Match-Wins - Match-Losses - Match-Draws
             f"{omw:.2%}",
             f"{gw:.2%}",
             f"{ogw:.2%}"
@@ -1248,3 +1411,28 @@ def calculate_leaderboard(tournament_id, up_to_round):
         x[0]  # Bei Gleichstand alphabetisch nach Namen (aufsteigend)
     ))
     return leaderboard
+
+@main.route("/delete_tournament/<tournament_id>", methods=["POST"])
+def delete_tournament(tournament_id):
+    """Löscht die Daten eines vergangenen Turniers"""
+    # Pfade zu den Turnierdaten
+    tournament_results_dir = "tournament_results"
+    results_file = os.path.join(tournament_results_dir, f"{tournament_id}_results.json")
+    
+    # Prüfe, ob das Turnier existiert
+    if not os.path.exists(results_file):
+        return jsonify({"success": False, "message": "Turnier nicht gefunden"}), 404
+    
+    try:
+        # Lösche die Turnierdatei
+        os.remove(results_file)
+        
+        # Lösche auch die zugehörigen Daten im data-Verzeichnis
+        data_dir = os.path.join("data", tournament_id)
+        if os.path.exists(data_dir) and os.path.isdir(data_dir):
+            import shutil
+            shutil.rmtree(data_dir)
+        
+        return jsonify({"success": True, "message": "Turnier erfolgreich gelöscht"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Fehler beim Löschen: {str(e)}"}), 500
