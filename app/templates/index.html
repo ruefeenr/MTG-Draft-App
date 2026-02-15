@@ -412,6 +412,19 @@
             background-color: rgba(231, 76, 60, 0.1);
             transform: scale(1.1);
         }
+
+        .continue-tournament-btn {
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 12px;
+            text-decoration: none;
+            font-size: 0.9em;
+            cursor: pointer;
+            margin-right: 10px;
+            white-space: nowrap;
+        }
         
         .accordion-icon {
             transition: transform 0.3s;
@@ -677,6 +690,16 @@
                     <h2>Tischgrössen auswählen</h2>
                     <button type="submit" id="startButton" class="start-button" disabled>🎲 Turnier starten</button>
                 </div>
+                <div style="margin-bottom: 12px;">
+                    <label for="tournament_group" style="display:block; font-weight:600; margin-bottom:6px;">Turniergruppe</label>
+                    <select id="tournament_group" name="tournament_group" style="width:100%; max-width:320px; padding:10px; border:1px solid #d7e2ef; border-radius:8px;">
+                        {% for group in tournament_groups %}
+                            <option value="{{ group.id }}" {% if group.id == selected_group_id %}selected{% endif %}>
+                                {{ group.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
                 <div class="group-sizes">
                     <input type="checkbox" id="size6" name="group_sizes" value="6" class="size-checkbox">
                     <label for="size6" class="size-label">6 Spieler</label>
@@ -729,6 +752,43 @@
             </div>
         </form>
 
+        <div style="margin: 16px 0 10px 0;">
+            <form method="GET" action="{{ url_for('main.index') }}" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <label for="group_filter" style="font-weight:600;">Turnierfilter:</label>
+                <select id="group_filter" name="group_filter" style="padding:8px 10px; border:1px solid #d7e2ef; border-radius:8px;">
+                    <option value="all" {% if selected_group_filter == 'all' %}selected{% endif %}>Alle Gruppen</option>
+                    {% for group in tournament_groups %}
+                        <option value="{{ group.id }}" {% if selected_group_filter == group.id %}selected{% endif %}>{{ group.name }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn-dialog btn-cancel" style="padding:8px 14px;">Anwenden</button>
+            </form>
+        </div>
+
+        {% if active_tournaments %}
+        <div class="past-tournaments-section">
+            <h2>Laufende Turniere</h2>
+            <div class="accordion">
+                {% for tournament in active_tournaments %}
+                <div class="accordion-item" data-tournament-id="{{ tournament.id }}">
+                    <div class="accordion-header" style="cursor: default;">
+                        <span class="tournament-winner">
+                            🟢 {{ tournament.id[:8] }}{% if tournament.is_current_session %} (aktuell geladen){% endif %}
+                        </span>
+                        <span class="tournament-date">Runde {{ tournament.current_round }} • {{ tournament.player_count }} Spieler • {{ tournament.group_name }}</span>
+                        <a href="{{ url_for('main.load_tournament', tournament_id=tournament.id) }}" class="continue-tournament-btn">Fortsetzen</a>
+                        <button type="button"
+                                class="delete-tournament-btn"
+                                onclick='event.stopPropagation(); showDeleteConfirmation({{ tournament.id|tojson }}, {{ tournament.id[:8]|tojson }})'>
+                            ❌
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Vergangene Turniere Accordion -->
         {% if last_tournaments %}
         <div class="past-tournaments-section">
@@ -738,10 +798,10 @@
                 <div class="accordion-item" data-tournament-id="{{ tournament.id }}">
                     <div class="accordion-header" onclick="toggleAccordion(this)">
                         <span class="tournament-winner">🏆 {{ tournament.winner }}</span>
-                        <span class="tournament-date">{{ tournament.date }}</span>
+                        <span class="tournament-date">{{ tournament.date }} • {{ tournament.group_name }}</span>
                         <button type="button" 
                                 class="delete-tournament-btn" 
-                                onclick="event.stopPropagation(); showDeleteConfirmation('{{ tournament.id }}', '{{ tournament.winner }}')">
+                                onclick='event.stopPropagation(); showDeleteConfirmation({{ tournament.id|tojson }}, {{ tournament.winner|tojson }})'>
                             ❌
                         </button>
                         <span class="accordion-icon">▼</span>
@@ -796,7 +856,7 @@
         <div class="dialog-content">
             <div class="dialog-title">Turnier löschen</div>
             <div class="dialog-message">
-                Möchtest du das Turnier mit Sieger <span id="tournamentWinnerName"></span> wirklich löschen?
+                Möchtest du das Turnier <span id="tournamentWinnerName"></span> wirklich löschen?
                 <br>
                 <small style="color: #c0392b;">Diese Aktion kann nicht rückgängig gemacht werden!</small>
             </div>
@@ -953,16 +1013,12 @@
                     // Erfolgreich gelöscht - Turnier aus der Ansicht entfernen
                     const tournamentElement = document.querySelector(`.accordion-item[data-tournament-id="${tournamentId}"]`);
                     if (tournamentElement) {
+                        const section = tournamentElement.closest('.past-tournaments-section');
                         tournamentElement.remove();
-                    }
-                    
-                    // Prüfe, ob noch Turniere übrig sind
-                    const remainingTournaments = document.querySelectorAll('.accordion-item');
-                    if (remainingTournaments.length === 0) {
-                        // Wenn keine Turniere mehr vorhanden sind, gesamte Sektion ausblenden
-                        const tournamentSection = document.querySelector('.past-tournaments-section');
-                        if (tournamentSection) {
-                            tournamentSection.style.display = 'none';
+
+                        // Falls in dieser Sektion keine Einträge mehr existieren, Sektion ausblenden
+                        if (section && section.querySelectorAll('.accordion-item').length === 0) {
+                            section.style.display = 'none';
                         }
                     }
                     

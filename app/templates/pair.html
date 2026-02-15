@@ -291,13 +291,12 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
-        .round-navigation {
-            margin-top: 20px;
-            text-align: center;
-            background: white;
-            padding: 15px;
-            border-radius: 6px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        .top-round-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
 
         .round-nav-btn {
@@ -321,6 +320,35 @@
         .round-nav-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        @media (max-width: 900px) {
+            .timer-section > div {
+                flex-wrap: wrap;
+                gap: 12px;
+            }
+
+            .top-round-controls {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .top-round-controls {
+                gap: 6px;
+            }
+
+            .round-nav-btn {
+                padding: 6px 10px;
+                margin: 0 2px;
+                font-size: 0.9em;
+            }
+
+            .round-badge {
+                font-size: 1em;
+                padding: 6px 12px;
+            }
         }
 
         .table-group-header {
@@ -1411,8 +1439,8 @@
             playerInfos[0].classList.remove('winner', 'loser', 'draw', 'leg-marked');
             playerInfos[1].classList.remove('winner', 'loser', 'draw', 'leg-marked');
             
-            // Player 2 ist BYE?
-            const isPlayer2Bye = playerInfos[1].querySelector('.player-name')?.textContent === '🦵';
+            // Player 2 ist BYE? (robust über Datenattribut statt UI-Text)
+            const isPlayer2Bye = matchCard.dataset.player2 === 'BYE';
             
             // Setze die neuen Status-Klassen für Spieler 1
             if (dropout1 === 'true') {
@@ -1744,144 +1772,6 @@
             document.getElementById(inputId).value = JSON.stringify(powerNineData);
         }
         
-        // Modifizierte openResultModal Funktion, um die Power Nine Felder zurückzusetzen
-        function openResultModal(table, player1, player2, tableSize, score1, score2, dropout1, dropout2, currentRound, display1, display2, score_draws) {
-            document.getElementById('modalTable').value = table;
-            document.getElementById('modalPlayer1').value = player1;
-            document.getElementById('modalPlayer2').value = player2;
-            document.getElementById('modalTableSize').value = tableSize;
-            document.getElementById('modalScore1').value = score1 || '0';
-            document.getElementById('modalScore2').value = score2 || '0';
-            document.getElementById('modalScoreDraws').value = score_draws || '0';  // Verwende den übergebenen Wert
-            document.getElementById('modalCurrentRound').value = currentRound;
-            document.getElementById('modalDropout1').value = dropout1 || 'false';
-            document.getElementById('modalDropout2').value = dropout2 || 'false';
-            
-            // Power Nine Bereich zurücksetzen und verstecken
-            document.getElementById('powerNineSection').style.display = 'none';
-            document.getElementById('player1PowerNine').value = '{}';
-            document.getElementById('player2PowerNine').value = '{}';
-            
-            // Spielernamen im Dropdown aktualisieren
-            const selectElement = document.getElementById('powerNinePlayerSelect');
-            const player1Option = selectElement.options[0];
-            const player2Option = selectElement.options[1];
-            
-            player1Option.text = cleanPlayerName(display1 || player1);
-            player2Option.text = cleanPlayerName(display2 || player2);
-            
-            // Für Spieler 2, prüfe ob es ein BYE ist
-            if (player2 === "BYE") {
-                player2Option.disabled = true;
-                player2Option.text = "BYE";
-            } else {
-                player2Option.disabled = false;
-                player2Option.text = cleanPlayerName(display2 || player2);
-            }
-            
-            // Zeige Spielernamen an (mit oder ohne 🦵-Symbol)
-            const player1Name = cleanPlayerName(display1 || player1);
-            const player2Name = cleanPlayerName(display2 || player2);
-            
-            document.getElementById('modalPlayer1Name').textContent = player1Name;
-            
-            // Für Spieler 2, prüfe ob es ein BYE ist
-            if (player2 === "BYE") {
-                document.getElementById('modalPlayer2Name').textContent = "BYE";
-                document.getElementById('player2-info').classList.add('leg-marked');
-                
-                // Deaktiviere Ergebnis-Buttons für BYE
-                const score2Buttons = document.querySelectorAll('#score2Buttons .score-button');
-                score2Buttons.forEach(button => {
-                    button.disabled = true;
-                    button.classList.remove('selected');
-                    if (button.textContent === "0") {
-                        button.classList.add('selected');
-                    }
-                });
-                
-                // Deaktiviere Unentschieden-Buttons für BYE
-                const scoreDrawsButtons = document.querySelectorAll('#scoreDrawsButtons .score-button');
-                scoreDrawsButtons.forEach(button => {
-                    button.disabled = true;
-                    button.classList.remove('selected');
-                    if (button.textContent === "0") {
-                        button.classList.add('selected');
-                    }
-                });
-                
-                // Setze Ergebnisse für BYE
-                document.getElementById('modalScore1').value = "2";
-                document.getElementById('modalScore2').value = "0";
-                document.getElementById('modalScoreDraws').value = "0";
-                
-                // Markiere die entsprechenden Buttons als ausgewählt
-                selectButton('modalScore1', "2");
-                selectButton('modalScore2', "0");
-                selectButton('modalScoreDraws', "0");
-            } else {
-                document.getElementById('modalPlayer2Name').textContent = player2Name;
-                document.getElementById('player2-info').classList.remove('leg-marked');
-                
-                // Aktiviere Ergebnis-Buttons für normales Match
-                const score2Buttons = document.querySelectorAll('#score2Buttons .score-button');
-                score2Buttons.forEach(button => {
-                    button.disabled = false;
-                });
-                
-                // Aktiviere Unentschieden-Buttons für normales Match
-                const scoreDrawsButtons = document.querySelectorAll('#scoreDrawsButtons .score-button');
-                scoreDrawsButtons.forEach(button => {
-                    button.disabled = false;
-                });
-                
-                // Markiere die entsprechenden Buttons als ausgewählt
-                selectButton('modalScore1', score1 || "0");
-                selectButton('modalScore2', score2 || "0");
-                selectButton('modalScoreDraws', score_draws || "0");  // Verwende den übergebenen Wert
-            }
-            
-            // Prüfen ob Spieler als Dropout markiert sind
-            if (dropout1 === 'true') {
-                const dropoutButton = document.querySelector('#player1-info .dropout-button');
-                dropoutButton.textContent = '🦵';
-                dropoutButton.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
-                document.getElementById('player1-info').classList.add('dropout');
-                document.getElementById('modalPlayer1Leg').style.display = 'inline';
-            } else {
-                const dropoutButton = document.querySelector('#player1-info .dropout-button');
-                dropoutButton.textContent = '🦵';
-                dropoutButton.style.background = 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)';
-                document.getElementById('player1-info').classList.remove('dropout');
-                document.getElementById('modalPlayer1Leg').style.display = 'none';
-            }
-            
-            if (dropout2 === 'true' && player2 !== "BYE") {
-                const dropoutButton = document.querySelector('#player2-info .dropout-button');
-                dropoutButton.textContent = '🦵';
-                dropoutButton.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
-                document.getElementById('player2-info').classList.add('dropout');
-                document.getElementById('modalPlayer2Leg').style.display = 'inline';
-            } else {
-                const dropoutButton = document.querySelector('#player2-info .dropout-button');
-                dropoutButton.textContent = '🦵';
-                dropoutButton.style.background = 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)';
-                document.getElementById('player2-info').classList.remove('dropout');
-                document.getElementById('modalPlayer2Leg').style.display = 'none';
-            }
-            
-            document.getElementById('resultModal').style.display = 'block';
-
-            // Speichere die aktuelle Scrollposition
-            localStorage.setItem('scrollPosition', window.scrollY);
-        }
-
-        // Hilfsfunktion zum Entfernen des 🦵-Symbols aus einem Namen
-        function cleanPlayerName(name) {
-            if (!name) return "";
-            return name.replace(" 🦵", "");
-        }
-
         // Hilfsfunktion für Erfolgsmeldung
         function showFloatingMessage(message, isError = false) {
             // Erstelle ein neues Element für die Meldung
@@ -2002,6 +1892,18 @@
 <body>
     <h1>Grotto Turnier Manager</h1>
 
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <div style="margin-bottom: 16px;">
+                {% for message in messages|unique %}
+                    <div class="error-message-box" style="display: block; margin-bottom: 8px;">
+                        <strong>Hinweis:</strong> {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
     <div class="timer-section">
         <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
             <div style="display: flex; align-items: center; gap: 15px;">
@@ -2011,14 +1913,25 @@
                 <button onclick="resetTimer()" class="timer-button">Reset</button>
                 <strong id="timer-display" class="timer-display">--:--</strong>
             </div>
-            <div class="round-badge">Runde {{ current_round }}</div>
+            <div class="top-round-controls">
+                <div class="round-badge">Runde {{ current_round }}</div>
+                {% for round_num in range(1, total_rounds + 1) %}
+                    <a href="{{ url_for('main.show_round', round_number=round_num) }}" 
+                       class="round-nav-btn {% if round_num == current_round %}active{% endif %}">
+                        {{ round_num }}
+                    </a>
+                {% endfor %}
+            </div>
         </div>
     </div>
 
     <div class="control-buttons" style="margin: 20px 0; display: flex; justify-content: space-between; align-items: flex-start;">
         <div>
+            <a href="{{ url_for('main.index') }}" class="btn-result" style="display:inline-block; text-decoration:none; background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Zur Startseite</a>
+        </div>
+        <div style="display: flex; gap: 1em; margin-left: {% if tournament_ended %}20px{% else %}0{% endif %};">
             {% if tournament_ended %}
-                <div class="alert" style="display: inline-block; margin-right: 20px;">
+                <div class="alert" style="display: inline-block;">
                     <strong>Hinweis:</strong> Dieses Turnier wurde bereits beendet. Sie können die Rundenansicht weiterhin nutzen, aber keine Änderungen mehr vornehmen.
                 </div>
             {% else %}
@@ -2026,16 +1939,11 @@
                     <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Nächste Runde</button>
                 </form>
             {% endif %}
-        </div>
-        <div style="display: flex; gap: 1em; margin-left: {% if tournament_ended %}20px{% else %}0{% endif %};">
             {% if not tournament_ended %}
                 <form method="POST" action="/end_tournament" style="display:inline;">
                     <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Turnier beenden</button>
                 </form>
             {% endif %}
-            <form method="GET" action="/start_tournament" style="display:inline;">
-                <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Neues Turnier starten</button>
-            </form>
         </div>
     </div>
 
@@ -2069,10 +1977,10 @@
                     <h3>Matches</h3>
                     <div class="match-grid">
                         {% for match in matches_in_group %}
-                            {% set has_leg_symbol1 = '🦵' in (match.display_player1 or '') %}
-                            {% set has_leg_symbol2 = '🦵' in (match.display_player2 or '') %}
-                            {% set clean_player1 = (match.display_player1 or match.player1) | replace(" 🦵", "") %}
-                            {% set clean_player2 = (match.display_player2 or match.player2) | replace(" 🦵", "") %}
+                            {% set is_dropout1 = match.dropout1 == 'true' %}
+                            {% set is_dropout2 = match.dropout2 == 'true' %}
+                            {% set clean_player1 = match.player1 %}
+                            {% set clean_player2 = match.player2 %}
                             
                             <!-- Power Nine Emojis für Spieler -->
                             {% set player1_p9 = all_players_data.get(match.player1, {}).get('power_nine', {}) %}
@@ -2132,29 +2040,29 @@
                                 {% endfor %}
                             {% endif %}
                             
-                            <div class="match-card" data-table-size="{{ table_size }}" data-table="{{ match.table }}" 
+                            <div class="match-card" data-table-size="{{ table_size }}" data-table="{{ match.table }}" data-player2="{{ match.player2 }}"
                                 {% if not tournament_ended %}
-                                onclick="openResultModal(
-                                    '{{ match.table }}', 
-                                    '{{ match.player1 }}', 
-                                    '{{ match.player2 }}', 
-                                    '{{ table_size }}', 
-                                    '{{ match.score1 }}', 
-                                    '{{ match.score2 }}', 
-                                    '{{ match.dropout1 }}', 
-                                    '{{ match.dropout2 }}',
-                                    '{{ current_round }}',
-                                    '{{ match.display_player1 }}',
-                                    '{{ match.display_player2 }}',
-                                    '{{ match.score_draws }}'
-                                )"
+                                onclick='openResultModal(
+                                    {{ match.table|tojson }}, 
+                                    {{ match.player1|tojson }}, 
+                                    {{ match.player2|tojson }}, 
+                                    {{ table_size|tojson }}, 
+                                    {{ match.score1|tojson }}, 
+                                    {{ match.score2|tojson }}, 
+                                    {{ match.dropout1|tojson }}, 
+                                    {{ match.dropout2|tojson }},
+                                    {{ current_round|tojson }},
+                                    {{ match.player1|tojson }},
+                                    {{ match.player2|tojson }},
+                                    {{ match.score_draws|tojson }}
+                                )'
                                 {% else %}
                                 style="cursor: default;"
                                 {% endif %}
                                 >
                                 <div class="match-content">
                                     <!-- Spieler 1 -->
-                                    {% if has_leg_symbol1 %}
+                                    {% if is_dropout1 %}
                                         <!-- Spezielle Spielerkarte für 🦵-markierte Spieler -->
                                         <div class="player-info leg-marked">
                                             <span class="player-name">{{ clean_player1 }} <span class="leg-indicator">🦵</span>
@@ -2187,7 +2095,7 @@
                                     {% endif %}
                                     
                                     <!-- Spieler 2 -->
-                                    {% if has_leg_symbol2 %}
+                                    {% if is_dropout2 %}
                                         <!-- Spezielle Spielerkarte für 🦵-markierte Spieler -->
                                         <div class="player-info leg-marked">
                                             <span class="player-name">{{ clean_player2 }} <span class="leg-indicator">🦵</span>
@@ -2200,7 +2108,7 @@
                                     {% elif match.player2 == "BYE" %}
                                         <!-- Spezielle Spielerkarte für BYE -->
                                         <div class="player-info leg-marked">
-                                            <span class="player-name">🦵</span>
+                                            <span class="player-name"><span class="leg-indicator">🦵</span> BYE</span>
                                             <div class="score">0</div>
                                         </div>
                                     {% else %}
@@ -2376,21 +2284,5 @@
     <!-- Power Nine Modal entfernen und durch den integrierten Bereich ersetzen -->
     <!-- Das Power Nine Modal wird nicht mehr benötigt -->
 
-    <div class="round-navigation">
-        {% if current_round > 1 %}
-            <a href="{{ url_for('main.show_round', round_number=current_round-1) }}" class="round-nav-btn">&lt;</a>
-        {% endif %}
-        
-        {% for round_num in range(1, total_rounds + 1) %}
-            <a href="{{ url_for('main.show_round', round_number=round_num) }}" 
-               class="round-nav-btn {% if round_num == current_round %}active{% endif %}">
-                {{ round_num }}
-            </a>
-        {% endfor %}
-
-        {% if current_round < total_rounds %}
-            <a href="{{ url_for('main.show_round', round_number=current_round+1) }}" class="round-nav-btn">&gt;</a>
-        {% endif %}
-</div>
 </body>
 </html>

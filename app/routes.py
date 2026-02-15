@@ -1,32 +1,33 @@
 from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, flash
 import uuid
 import random
-import itertools
-import ast
 import os
 import csv
 from datetime import datetime
 from collections import defaultdict
 import json
-import base64
-
-# Debug-Modus - auf False setzen für Produktionsumgebung
-DEBUG = True
+from .tournament_groups import (
+    DEFAULT_GROUP_ID,
+    get_group_name,
+    get_tournament_group_id,
+    get_tournament_group_name,
+    is_valid_group_id,
+    load_tournament_groups,
+    remove_tournament_group,
+    set_tournament_group,
+)
 
 main = Blueprint('main', __name__)
 
-def debug_emoji(text, prefix=""):
-    """Hilft bei der Identifizierung von Problemen mit Unicode-Symbolen wie dem 🦵"""
-    if not DEBUG:
-        return text
-    
-    if text and isinstance(text, str):
-        has_leg = "🦵" in text
-        byte_repr = str(text.encode('utf-8'))
-        print(f"{prefix} Text: '{text}', Enthält 🦵: {has_leg}, Bytes: {byte_repr}")
-    else:
-        print(f"{prefix} Kein Text oder kein String: {type(text)}")
-    return text
+def is_valid_tournament_id(value):
+    """Nur UUIDs als gültige Turnier-IDs akzeptieren."""
+    if not value or not isinstance(value, str):
+        return False
+    try:
+        parsed = uuid.UUID(value)
+        return str(parsed) == value.lower()
+    except (ValueError, AttributeError, TypeError):
+        return False
 
 def is_player_marked(player_name):
     """Prüft, ob ein Spieler als Dropout markiert ist (anhand der Session)"""
@@ -34,97 +35,6 @@ def is_player_marked(player_name):
         return False
     marked_players = session.get("leg_players_set", [])
     return player_name in marked_players
-
-def mark_player(player_name):
-    """Fügt das 🦵-Symbol zu einem Spielernamen hinzu, wenn er in der markierten Liste ist."""
-    if not player_name or not isinstance(player_name, str):
-        return player_name
-    
-    marked_players = session.get("leg_players_set", [])
-    if player_name in marked_players:
-        if "🦵" not in player_name:  # Stelle sicher, dass das Symbol nur einmal hinzugefügt wird
-            return f"{player_name} 🦵"
-    return player_name
-
-def get_display_name(player_name):
-    """Gibt den Anzeigenamen für einen Spieler zurück, inkl. 🦵-Symbol wenn markiert"""
-    if not player_name or not isinstance(player_name, str):
-        return player_name
-    
-    # Für BYE, verwende das 🦵-Symbol als Anzeigename
-    if player_name == "BYE":
-        return "🦵"
-    
-    # Für markierte Spieler füge das 🦵-Symbol hinzu
-    if is_player_marked(player_name):
-        return f"{player_name} 🦵"
-    
-    return player_name
-
-def generate_secret_key():
-    """Generiert einen sicheren Secret Key"""
-    return base64.b64encode(os.urandom(32)).decode('utf-8')
-
-def get_secret_key():
-    """
-    Holt den Secret Key aus der Umgebungsvariable oder generiert einen neuen.
-    Die Priorität ist:
-    1. Umgebungsvariable FLASK_SECRET_KEY
-    2. Lokale .env Datei (wenn vorhanden)
-    3. In Entwicklungsumgebungen: Datei im .gitignore-geschützten Verzeichnis
-    4. Fallback: Temporärer Secret Key (nicht persistent)
-    """
-    # 1. Prüfe ob eine Umgebungsvariable gesetzt ist
-    if os.environ.get('FLASK_SECRET_KEY'):
-        return os.environ.get('FLASK_SECRET_KEY')
-    
-    # 2. Versuche aus .env-Datei zu laden, falls python-dotenv installiert ist
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()  # Lädt Variablen aus .env in die Umgebung
-        if os.environ.get('FLASK_SECRET_KEY'):
-            return os.environ.get('FLASK_SECRET_KEY')
-    except ImportError:
-        # python-dotenv ist nicht installiert - ignorieren
-        pass
-    
-    # 3. Im Entwicklungsmodus: Nutze eine Datei in einem sicheren, .gitignore-geschützten Verzeichnis
-    config_dir = "instance"  # Flask-Standard für nicht-versionierte Konfiguration
-    config_file = os.path.join(config_dir, "secret_key")
-    
-    if DEBUG:  # Nur im Debug-Modus verwenden wir die Datei
-        # Erstelle das Konfig-Verzeichnis, falls es nicht existiert
-        if not os.path.exists(config_dir):
-            os.makedirs(config_dir)
-        
-        # Versuche den Key aus der Datei zu lesen
-        if os.path.exists(config_file):
-            try:
-                with open(config_file, 'r') as f:
-                    key = f.read().strip()
-                    if key:  # Stellen sicher, dass der Key nicht leer ist
-                        return key
-            except:
-                pass  # Bei Fehlern einfach einen neuen Key generieren
-        
-        # Generiere einen neuen Key und speichere ihn
-        secret_key = generate_secret_key()
-        try:
-            with open(config_file, 'w') as f:
-                f.write(secret_key)
-            print("HINWEIS: Ein neuer Secret Key wurde in 'instance/secret_key' generiert")
-            print("WICHTIG: Dieses Verzeichnis sollte in .gitignore aufgenommen werden!")
-            return secret_key
-        except Exception as e:
-            print(f"WARNUNG: Secret Key konnte nicht gespeichert werden: {e}")
-    
-    # 4. Fallback: Temporärer Key (Achtung: ändert sich bei jedem Neustart!)
-    print("WARNUNG: Verwende temporären Secret Key - Sessions gehen bei Neustart verloren!")
-    print("EMPFEHLUNG: Setzen Sie FLASK_SECRET_KEY als Umgebungsvariable für Persistenz.")
-    return generate_secret_key()
-
-# Setze den Secret Key
-main.secret_key = get_secret_key()
 
 def find_all_valid_groupings(player_count, allowed_sizes):
     """
@@ -160,7 +70,7 @@ def find_all_valid_groupings(player_count, allowed_sizes):
     print(f"Gefundene Gruppierungen: {valid_groupings}")
     return valid_groupings
 
-def get_last_tournaments(limit=5):
+def get_last_tournaments(limit=5, group_filter=None):
     """Lädt die letzten abgeschlossenen Turniere aus dem tournament_results Verzeichnis"""
     tournament_results_dir = "tournament_results"
     if not os.path.exists(tournament_results_dir):
@@ -205,17 +115,207 @@ def get_last_tournaments(limit=5):
                     'rounds': tournament_data.get('tournament_data', {}).get('total_rounds', 0),
                     'leaderboard': tournament_data.get('final_leaderboard', [])
                 }
+                group_id = tournament_data.get("tournament_data", {}).get("group_id")
+                if not group_id:
+                    group_id = get_tournament_group_id(tournament_id)
+                tournament_info["group_id"] = group_id
+                tournament_info["group_name"] = get_group_name(group_id)
+                if group_filter and tournament_info["group_id"] != group_filter:
+                    continue
                 last_tournaments.append(tournament_info)
         except Exception as e:
             print(f"Fehler beim Verarbeiten von {file_path}: {str(e)}")
     
     return last_tournaments
 
+def get_marked_players_for_tournament(tournament_id):
+    """
+    Rekonstruiert Dropout-Status aus den gespeicherten Runden.
+    Dadurch bleibt der Status auch nach Reload/Session-Wechsel konsistent.
+    """
+    marked_players = set()
+    rounds_dir = os.path.join("data", tournament_id, "rounds")
+    if not os.path.exists(rounds_dir):
+        return []
+
+    round_numbers = []
+    for filename in os.listdir(rounds_dir):
+        if filename.startswith("round_") and filename.endswith(".csv"):
+            try:
+                round_numbers.append(int(filename.replace("round_", "").replace(".csv", "")))
+            except ValueError:
+                continue
+
+    for round_num in sorted(round_numbers):
+        round_file = os.path.join(rounds_dir, f"round_{round_num}.csv")
+        try:
+            with open(round_file, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    p1 = (row.get("player1") or "").strip()
+                    p2 = (row.get("player2") or "").strip()
+                    d1 = (row.get("dropout1") or "false").strip().lower() == "true"
+                    d2 = (row.get("dropout2") or "false").strip().lower() == "true"
+
+                    if p1:
+                        if d1:
+                            marked_players.add(p1)
+                        else:
+                            marked_players.discard(p1)
+                    if p2 and p2 != "BYE":
+                        if d2:
+                            marked_players.add(p2)
+                        else:
+                            marked_players.discard(p2)
+        except (IOError, OSError):
+            continue
+
+    return sorted(marked_players)
+
+def get_active_tournaments(limit=10, group_filter=None):
+    """Lädt laufende (nicht beendete) Turniere aus dem data-Verzeichnis."""
+    data_root = "data"
+    results_root = "tournament_results"
+    if not os.path.exists(data_root):
+        return []
+
+    tournaments = []
+    for tournament_id in os.listdir(data_root):
+        # Nicht-Turnier-Ordner (z.B. "players") konsequent ignorieren
+        if not is_valid_tournament_id(tournament_id):
+            continue
+
+        tournament_dir = os.path.join(data_root, tournament_id)
+        if not os.path.isdir(tournament_dir):
+            continue
+
+        # Beendete Turniere ausblenden
+        if os.path.exists(os.path.join(tournament_dir, "end_time.txt")):
+            continue
+        if os.path.exists(os.path.join(results_root, f"{tournament_id}_results.json")):
+            continue
+
+        rounds_dir = os.path.join(tournament_dir, "rounds")
+        round_numbers = []
+        latest_ts = os.path.getmtime(tournament_dir)
+        if os.path.exists(rounds_dir):
+            for filename in os.listdir(rounds_dir):
+                if filename.startswith("round_") and filename.endswith(".csv"):
+                    try:
+                        round_numbers.append(int(filename.replace("round_", "").replace(".csv", "")))
+                        latest_ts = max(latest_ts, os.path.getmtime(os.path.join(rounds_dir, filename)))
+                    except ValueError:
+                        continue
+
+        player_count = 0
+        player_groups_file = os.path.join(tournament_dir, "player_groups.json")
+        if os.path.exists(player_groups_file):
+            try:
+                with open(player_groups_file, "r", encoding="utf-8") as f:
+                    groups = json.load(f)
+                    seen = set()
+                    for players in groups.values():
+                        for p in players:
+                            seen.add(p)
+                    player_count = len(seen)
+            except Exception:
+                player_count = 0
+
+        current_round = max(round_numbers) if round_numbers else 0
+
+        # Leere Platzhalter (noch kein Spieler + keine Runde) nicht anzeigen.
+        # Diese können entstehen, wenn ein Turnier vorbereitet, aber nie gestartet wurde.
+        if current_round == 0 and player_count == 0:
+            continue
+
+        tournaments.append({
+            "id": tournament_id,
+            "current_round": current_round,
+            "player_count": player_count,
+            "updated_at_ts": latest_ts,
+            "is_current_session": session.get("tournament_id") == tournament_id,
+            "group_id": get_tournament_group_id(tournament_id),
+            "group_name": get_tournament_group_name(tournament_id),
+        })
+
+    if group_filter:
+        tournaments = [t for t in tournaments if t["group_id"] == group_filter]
+
+    tournaments.sort(key=lambda t: t["updated_at_ts"], reverse=True)
+    return tournaments[:limit]
+
+def render_index_page(players_text="", error=None, selected_group_id=DEFAULT_GROUP_ID, group_filter="all"):
+    tournament_groups = load_tournament_groups()
+    valid_group_ids = {group["id"] for group in tournament_groups}
+    if selected_group_id not in valid_group_ids:
+        selected_group_id = DEFAULT_GROUP_ID
+
+    normalized_filter = None
+    if group_filter and group_filter != "all":
+        if group_filter in valid_group_ids:
+            normalized_filter = group_filter
+        else:
+            group_filter = "all"
+
+    last_tournaments = get_last_tournaments(5, group_filter=normalized_filter)
+    active_tournaments = get_active_tournaments(10, group_filter=normalized_filter)
+    return render_template(
+        "index.html",
+        players_text=players_text,
+        error=error,
+        last_tournaments=last_tournaments,
+        active_tournaments=active_tournaments,
+        tournament_groups=tournament_groups,
+        selected_group_id=selected_group_id,
+        selected_group_filter=group_filter or "all",
+    )
+
 @main.route("/", methods=["GET"])
 def index():
-    # Lade die letzten 5 Turniere für die Startseite
-    last_tournaments = get_last_tournaments(5)
-    return render_template("index.html", players_text="", last_tournaments=last_tournaments)
+    # Aufräumen nach älteren fehlerhaften States (z.B. session["tournament_id"] = "players")
+    current_tournament_id = session.get("tournament_id")
+    if current_tournament_id and not is_valid_tournament_id(current_tournament_id):
+        session.pop("tournament_id", None)
+        session.pop("leg_players_set", None)
+        session.pop("tournament_ended", None)
+
+    group_filter = request.args.get("group_filter", "all")
+    return render_index_page(players_text="", group_filter=group_filter)
+
+@main.route("/load_tournament/<tournament_id>", methods=["GET"])
+def load_tournament(tournament_id):
+    """Lädt ein bestehendes Turnier in die Session und öffnet die letzte Runde."""
+    if not is_valid_tournament_id(tournament_id):
+        flash("Ungültige Turnier-ID.")
+        return redirect(url_for("main.index"))
+
+    data_dir = os.path.join("data", tournament_id)
+    rounds_dir = os.path.join(data_dir, "rounds")
+    if not os.path.exists(data_dir):
+        flash("Turnier wurde nicht gefunden.")
+        return redirect(url_for("main.index"))
+
+    session["tournament_id"] = tournament_id
+    session["leg_players_set"] = get_marked_players_for_tournament(tournament_id)
+    session["tournament_ended"] = check_tournament_status(tournament_id)
+
+    if not os.path.exists(rounds_dir):
+        flash("Turnier geladen, aber es wurden noch keine Runden erstellt.")
+        return redirect(url_for("main.index"))
+
+    round_numbers = []
+    for filename in os.listdir(rounds_dir):
+        if filename.startswith("round_") and filename.endswith(".csv"):
+            try:
+                round_numbers.append(int(filename.replace("round_", "").replace(".csv", "")))
+            except ValueError:
+                continue
+
+    if not round_numbers:
+        flash("Turnier geladen, aber es wurden noch keine Runden erstellt.")
+        return redirect(url_for("main.index"))
+
+    return redirect(url_for("main.show_round", round_number=max(round_numbers)))
 
 @main.route("/api/groupings", methods=["POST"])
 def api_groupings():
@@ -238,30 +338,54 @@ def validate_player_name(name):
 
 @main.route("/pair", methods=["POST"])
 def pair():
-    if not session.get("tournament_id"):
-        session["tournament_id"] = str(uuid.uuid4())
-
-    tournament_id = session["tournament_id"]
-    data_dir = os.path.join("data", tournament_id)
-    os.makedirs(data_dir, exist_ok=True)
-
-    # Initialisiere die Liste der markierten Spieler, nur wenn sie nicht existiert
-    if "leg_players_set" not in session:
-        session["leg_players_set"] = []  # Als leere Liste initialisieren
+    selected_group_id = request.form.get("tournament_group", DEFAULT_GROUP_ID)
+    if not is_valid_group_id(selected_group_id):
+        selected_group_id = DEFAULT_GROUP_ID
     
-    # Verarbeite die Spielerliste - ohne Markierung in dieser Phase
-    original_players = request.form.getlist("players")
-    
-    # Überprüfe auf doppelte Spielernamen
-    seen_players = set()
-    duplicate_players = [p for p in original_players if p in seen_players or seen_players.add(p)]
+    # Verarbeite und validiere die Spielerliste
+    raw_players = request.form.getlist("players")
+    players = []
+    invalid_players = []
+
+    for raw_name in raw_players:
+        cleaned_name = raw_name.strip()
+        if validate_player_name(cleaned_name):
+            players.append(cleaned_name)
+        else:
+            invalid_players.append(raw_name)
+
+    if invalid_players:
+        return render_index_page(
+            error="Ungültige Spielernamen gefunden. Namen dürfen nicht leer sein und maximal 50 Zeichen haben.",
+            players_text="\n".join(raw_players),
+            selected_group_id=selected_group_id,
+        )
+
+    if not players:
+        return render_index_page(
+            error="Bitte geben Sie mindestens einen gültigen Spielernamen ein.",
+            players_text="",
+            selected_group_id=selected_group_id,
+        )
+
+    # Überprüfe auf doppelte Spielernamen (case-insensitive)
+    seen_players = {}
+    duplicate_players = set()
+    for player in players:
+        key = player.casefold()
+        if key in seen_players:
+            duplicate_players.add(seen_players[key])
+            duplicate_players.add(player)
+        else:
+            seen_players[key] = player
     
     if duplicate_players:
-        return render_template("index.html", 
-                               error=f"Doppelte Spielernamen gefunden: {', '.join(duplicate_players)}. Bitte geben Sie eindeutige Namen ein.",
-                               players_text="\n".join(original_players))
-    
-    players = original_players  # Keine Markierung in dieser Phase
+        duplicate_list = ", ".join(sorted(duplicate_players))
+        return render_index_page(
+            error=f"Doppelte Spielernamen gefunden: {duplicate_list}. Bitte geben Sie eindeutige Namen ein.",
+            players_text="\n".join(players),
+            selected_group_id=selected_group_id,
+        )
     
     group_sizes = request.form.getlist("group_sizes")
     
@@ -269,17 +393,30 @@ def pair():
         # Konvertiere Gruppengrößen zu Integers und validiere sie
         allowed_sizes = [int(size) for size in group_sizes]
         if not allowed_sizes:
-            return render_template("index.html", 
-                                error="Bitte wählen Sie mindestens eine Tischgrösse aus.",
-                                players_text="\n".join(players))
+            return render_index_page(
+                error="Bitte wählen Sie mindestens eine Tischgrösse aus.",
+                players_text="\n".join(players),
+                selected_group_id=selected_group_id,
+            )
         
         # Finde mögliche Gruppierungen
         groupings = find_all_valid_groupings(len(players), allowed_sizes)
         
         if not groupings:
-            return render_template("index.html", 
-                                error=f"Keine gültige Gruppierung für {len(players)} Spieler mit den Tischgrössen {allowed_sizes} möglich.",
-                                players_text="\n".join(players))
+            return render_index_page(
+                error=f"Keine gültige Gruppierung für {len(players)} Spieler mit den Tischgrössen {allowed_sizes} möglich.",
+                players_text="\n".join(players),
+                selected_group_id=selected_group_id,
+            )
+
+        # Neues Turnier erst nach erfolgreicher Validierung anlegen.
+        tournament_id = str(uuid.uuid4())
+        session["tournament_id"] = tournament_id
+        session["leg_players_set"] = []
+        session["tournament_ended"] = False
+        set_tournament_group(tournament_id, selected_group_id)
+        data_dir = os.path.join("data", tournament_id)
+        os.makedirs(data_dir, exist_ok=True)
         
         # Wähle die erste gültige Gruppierung
         selected_grouping = groupings[0]
@@ -362,13 +499,17 @@ def pair():
         return redirect(url_for('main.show_round', round_number=current_round))
     
     except ValueError as e:
-        return render_template("index.html", 
-                            error=f"Fehler bei der Verarbeitung der Gruppengrößen: {str(e)}",
-                            players_text="\n".join(players))
+        return render_index_page(
+            error=f"Fehler bei der Verarbeitung der Gruppengrößen: {str(e)}",
+            players_text="\n".join(players),
+            selected_group_id=selected_group_id,
+        )
     except Exception as e:
-        return render_template("index.html", 
-                            error=f"Ein unerwarteter Fehler ist aufgetreten: {str(e)}",
-                            players_text="\n".join(players))
+        return render_index_page(
+            error=f"Ein unerwarteter Fehler ist aufgetreten: {str(e)}",
+            players_text="\n".join(players),
+            selected_group_id=selected_group_id,
+        )
 
 def ensure_data_directory():
     """Stellt sicher, dass das Datenverzeichnis existiert"""
@@ -443,23 +584,6 @@ def save_results():
         except Exception as e:
             print(f"Fehler bei der Verarbeitung der Power Nine Daten für {player2_name}: {e}")
     
-    # In results.csv speichern
-    results_file = os.path.join("tournament_data", "results.csv")
-    os.makedirs("tournament_data", exist_ok=True)
-    file_exists = os.path.isfile(results_file)
-    
-    try:
-        with open(results_file, "a", newline="", encoding="utf-8") as csvfile:
-            writer = csv.writer(csvfile)
-            if not file_exists:
-                writer.writerow(["Tournament", "Timestamp", "Table", "Player 1", "Score 1", "Player 2", "Score 2", "Draws"])
-            writer.writerow([tournament_id, datetime.now().isoformat(), table, player1, score1, player2, score2, score_draws])
-        print(f"Ergebnis in results.csv gespeichert")
-    except Exception as e:
-        print(f"Fehler beim Speichern in results.csv: {e}")
-        return jsonify({"success": False, "message": f"Fehler beim Speichern der Ergebnisse: {str(e)}"}), 500
-
-    
     # In Rundendatei aktualisieren
     try:
         data_dir = os.path.join("data", tournament_id)
@@ -482,8 +606,8 @@ def save_results():
                 print(f"Feldnamen in CSV: {fieldnames}")
                 
                 # Stelle sicher, dass alle benötigten Felder in fieldnames sind
-                required_fields = ['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'table_size', 
-                                  'dropout1', 'dropout2', 'display_player1', 'display_player2', 'group_key']
+                required_fields = ['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'table_size',
+                                  'dropout1', 'dropout2', 'group_key']
                 for field in required_fields:
                     if field not in fieldnames:
                         fieldnames.append(field)
@@ -503,11 +627,23 @@ def save_results():
             return jsonify({"success": False, "message": f"Fehler beim Lesen der Rundendatei: {str(e)}"}), 500
         
         # Match finden und aktualisieren
+        requested_player1 = (player1 or "").strip()
+        requested_player2 = (player2 or "").strip()
+        requested_players = {requested_player1, requested_player2}
         match_found = False
-        match_data = None
         for match in matches:
             print(f"Vergleiche Match: Tisch {match.get('table', 'unbekannt')} mit {table}")
             if str(match.get("table", "")) == str(table):
+                # Zusätzliche Integritätsprüfung:
+                # Aktualisiere nur dann, wenn auch die Spieler zum Tisch passen.
+                match_players = {match.get("player1", "").strip(), match.get("player2", "").strip()}
+                if requested_player1 and requested_player2 and match_players != requested_players:
+                    print(
+                        "Tischnummer passt, aber Spielerpaarung stimmt nicht überein: "
+                        f"Request={requested_players}, Match={match_players}"
+                    )
+                    continue
+
                 print(f"Tisch gefunden! Spieler: {match.get('player1', '')} vs {match.get('player2', '')}")
                 
                 # Aktualisiere alle relevanten Werte
@@ -520,41 +656,30 @@ def save_results():
                 # Stelle sicher, dass table_size als String gesetzt ist
                 match["table_size"] = str(table_size)
                 
-                # Aktualisiere die display_player Felder
-                if "display_player1" not in match or not match["display_player1"]:
-                    match["display_player1"] = match["player1"]
-                if "display_player2" not in match or not match["display_player2"]:
-                    match["display_player2"] = match["player2"]
-                
                 # Füge Spieler zur markierten Liste hinzu oder entferne sie, basierend auf dropout-Status
                 marked_players = session.get("leg_players_set", [])
                 
                 # Für Spieler 1
                 if dropout1 and match['player1'] not in marked_players:
                     marked_players.append(match['player1'])
-                    match['display_player1'] = get_display_name(match['player1'])
-                    print(f"🦵-Status zu Spieler 1 hinzugefügt: {match['player1']}")
+                    print(f"Dropout-Status zu Spieler 1 hinzugefügt: {match['player1']}")
                 elif not dropout1 and match['player1'] in marked_players:
                     marked_players.remove(match['player1'])
-                    match['display_player1'] = match['player1']
-                    print(f"🦵-Status von Spieler 1 entfernt: {match['player1']}")
+                    print(f"Dropout-Status von Spieler 1 entfernt: {match['player1']}")
                 
                 # Für Spieler 2 (wenn nicht BYE)
                 if match['player2'] != "BYE":
                     if dropout2 and match['player2'] not in marked_players:
                         marked_players.append(match['player2'])
-                        match['display_player2'] = get_display_name(match['player2'])
-                        print(f"🦵-Status zu Spieler 2 hinzugefügt: {match['player2']}")
+                        print(f"Dropout-Status zu Spieler 2 hinzugefügt: {match['player2']}")
                     elif not dropout2 and match['player2'] in marked_players:
                         marked_players.remove(match['player2'])
-                        match['display_player2'] = match['player2']
-                        print(f"🦵-Status von Spieler 2 entfernt: {match['player2']}")
+                        print(f"Dropout-Status von Spieler 2 entfernt: {match['player2']}")
                 
                 # Aktualisiere die Session
                 session["leg_players_set"] = marked_players
                 
                 match_found = True
-                match_data = match.copy()
                 print(f"Match aktualisiert: {match}")
                 break
         
@@ -578,6 +703,21 @@ def save_results():
         except Exception as e:
             print(f"Fehler beim Schreiben der Rundendatei: {e}")
             return jsonify({"success": False, "message": f"Fehler beim Schreiben der Rundendatei: {str(e)}"}), 500
+
+        # Erst nach erfolgreicher Rundendatei-Aktualisierung in results.csv speichern
+        results_file = os.path.join("tournament_data", "results.csv")
+        os.makedirs("tournament_data", exist_ok=True)
+        file_exists = os.path.isfile(results_file)
+        try:
+            with open(results_file, "a", newline="", encoding="utf-8") as csvfile:
+                writer = csv.writer(csvfile)
+                if not file_exists:
+                    writer.writerow(["Tournament", "Timestamp", "Table", "Player 1", "Score 1", "Player 2", "Score 2", "Draws"])
+                writer.writerow([tournament_id, datetime.now().isoformat(), table, player1, score1, player2, score2, score_draws])
+            print("Ergebnis in results.csv gespeichert")
+        except Exception as e:
+            print(f"Fehler beim Speichern in results.csv: {e}")
+            return jsonify({"success": False, "message": f"Fehler beim Speichern der Ergebnisse: {str(e)}"}), 500
     except Exception as e:
         import traceback
         print(f"Allgemeiner Fehler bei Rundendatei: {e}")
@@ -596,108 +736,13 @@ def save_results():
             "score2": score2,
             "score_draws": score_draws,
             "dropout1": "true" if dropout1 else "false",
-            "dropout2": "true" if dropout2 else "false",
-            "display_player1": match_data.get("display_player1", player1) if match_data else player1,
-            "display_player2": match_data.get("display_player2", player2) if match_data else player2
+            "dropout2": "true" if dropout2 else "false"
         }
     }
     
     # Zurück zur Rundenansicht (für nicht-Ajax Anfragen als Fallback)
     print(f"Ergebnis erfolgreich gespeichert, JSON-Antwort wird gesendet")
     return jsonify(response_data)
-
-def calculate_mtg_stats(results_file, tournament_id):
-    """Berechnet MTG-spezifische Turnierstatistiken"""
-    stats = defaultdict(lambda: {
-        'match_wins': 0,
-        'match_losses': 0,
-        'match_draws': 0,
-        'game_wins': 0,
-        'game_losses': 0,
-        'game_draws': 0,
-        'opponents': set(),
-        'points': 0
-    })
-    
-    try:
-        with open(results_file, newline="", encoding="utf-8") as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                if row["Tournament"] != tournament_id:
-                    continue
-
-                p1, p2 = row["Player 1"], row["Player 2"]
-                s1, s2 = int(row["Score 1"]), int(row["Score 2"])
-                
-                # Unentschieden berücksichtigen, falls vorhanden
-                draws = 0
-                if "Draws" in row and row["Draws"]:
-                    draws = int(row["Draws"])
-                
-                # Game Wins und Draws berechnen
-                stats[p1]['game_wins'] += s1
-                stats[p1]['game_losses'] += s2
-                stats[p1]['game_draws'] += draws
-                stats[p2]['game_wins'] += s2
-                stats[p2]['game_losses'] += s1
-                stats[p2]['game_draws'] += draws
-                
-                # Match Wins berechnen
-                if s1 > s2:
-                    stats[p1]['match_wins'] += 1
-                    stats[p1]['points'] += 3
-                    stats[p2]['match_losses'] += 1
-                elif s2 > s1:
-                    stats[p2]['match_wins'] += 1
-                    stats[p2]['points'] += 3
-                    stats[p1]['match_losses'] += 1
-                else:
-                    # Bei Gleichstand als Unentschieden werten
-                    stats[p1]['match_draws'] += 1
-                    stats[p2]['match_draws'] += 1
-                    stats[p1]['points'] += 1
-                    stats[p2]['points'] += 1
-                
-                # Gegner für Tiebreaker
-                stats[p1]['opponents'].add(p2)
-                stats[p2]['opponents'].add(p1)
-
-    except (IOError, OSError) as e:
-        print(f"Fehler beim Lesen der Ergebnisse: {e}")
-        return {}
-
-    return stats
-
-
-def calculate_tiebreakers(stats):
-    """Berechnet MTG Tiebreaker (OMW%, GWP%)"""
-    tiebreakers = {}
-    
-    for player, player_stats in stats.items():
-        # Opponent Match Win %
-        opp_match_wins = 0
-        opp_matches = 0
-        for opp in player_stats['opponents']:
-            if opp in stats:
-                opp_match_wins += stats[opp]['match_wins']
-                opp_matches += (stats[opp]['match_wins'] + 
-                              stats[opp]['match_losses'] + 
-                              stats[opp]['match_draws'])
-        
-        omw = (opp_match_wins / opp_matches * 100) if opp_matches > 0 else 0
-        
-        # Game Win %
-        total_games = (player_stats['game_wins'] + 
-                      player_stats['game_losses'] + 
-                      player_stats['game_draws'])
-        gwp = (player_stats['game_wins'] / total_games * 100) if total_games > 0 else 0
-        
-        tiebreakers[player] = {
-            'omw': round(omw, 1),
-            'gwp': round(gwp, 1)
-        }
-    
-    return tiebreakers
 
 def get_player_opponents(tournament_id, current_round):
     """Lädt die Gegner-Historie für alle Spieler aus den vorherigen Runden."""
@@ -722,6 +767,121 @@ def get_player_opponents(tournament_id, current_round):
     
     return opponents
 
+def get_player_bye_counts(tournament_id, up_to_round):
+    """Zählt, wie oft jeder Spieler bis inkl. Runde N ein BYE erhalten hat."""
+    bye_counts = defaultdict(int)
+    data_dir = os.path.join("data", tournament_id)
+
+    for round_num in range(1, up_to_round + 1):
+        round_file = os.path.join(data_dir, "rounds", f"round_{round_num}.csv")
+        if not os.path.exists(round_file):
+            continue
+        try:
+            with open(round_file, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for match in reader:
+                    if (match.get("player2") or "").strip() == "BYE":
+                        player1 = (match.get("player1") or "").strip()
+                        if player1:
+                            bye_counts[player1] += 1
+        except (IOError, OSError):
+            continue
+
+    return bye_counts
+
+def validate_round_completion(round_file):
+    """
+    Prüft, ob alle Matches einer Runde vollständig und plausibel eingetragen sind.
+
+    Regeln:
+    - Normales Match: score1 und score2 müssen gesetzt sein (0-2), draws optional (0-2)
+    - BYE-Match: Ergebnis muss 2-0 (draws 0) sein
+    - Beide Spieler dürfen nicht gleichzeitig 2 Siege haben
+    - Ein Match mit 0-0-0 gilt als nicht abgeschlossen
+    """
+    if not os.path.exists(round_file):
+        return False, "Die aktuelle Rundendatei wurde nicht gefunden."
+
+    try:
+        with open(round_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for idx, match in enumerate(reader, start=1):
+                table = match.get("table", str(idx))
+                player1 = (match.get("player1") or "").strip()
+                player2 = (match.get("player2") or "").strip()
+                raw_score1 = (match.get("score1") or "").strip()
+                raw_score2 = (match.get("score2") or "").strip()
+                raw_draws = (match.get("score_draws") or "").strip()
+
+                if not player1 or not player2:
+                    return False, f"Tisch {table}: Spielerzuordnung ist unvollständig."
+
+                # Für normale Matches müssen beide Scores eingetragen sein.
+                if player2 != "BYE" and (raw_score1 == "" or raw_score2 == ""):
+                    return False, f"Tisch {table}: Ergebnis ist noch nicht vollständig eingetragen."
+
+                # Leere Draws als 0 behandeln
+                if raw_draws == "":
+                    raw_draws = "0"
+
+                try:
+                    score1 = int(raw_score1) if raw_score1 != "" else None
+                    score2 = int(raw_score2) if raw_score2 != "" else None
+                    draws = int(raw_draws)
+                except ValueError:
+                    return False, f"Tisch {table}: Ergebnis enthält ungültige Werte."
+
+                if player2 == "BYE":
+                    if score1 != 2 or score2 != 0 or draws != 0:
+                        return False, f"Tisch {table}: BYE-Match muss 2-0-0 sein."
+                    continue
+
+                # Normale Matches: Wertebereich prüfen
+                if score1 is None or score2 is None:
+                    return False, f"Tisch {table}: Ergebnis ist noch nicht vollständig eingetragen."
+                if not (0 <= score1 <= 2 and 0 <= score2 <= 2 and 0 <= draws <= 2):
+                    return False, f"Tisch {table}: Ergebnis muss im Bereich 0 bis 2 liegen."
+                if score1 == 2 and score2 == 2:
+                    return False, f"Tisch {table}: Beide Spieler können nicht 2 Siege haben."
+                if score1 == 0 and score2 == 0 and draws == 0:
+                    return False, f"Tisch {table}: Match ist noch nicht gespielt (0-0-0)."
+    except (IOError, OSError) as e:
+        return False, f"Fehler beim Prüfen der Rundendatei: {e}"
+
+    return True, ""
+
+def is_round_unplayed(round_file):
+    """
+    Erkennt eine versehentlich eröffnete, aber noch ungespielte Runde.
+
+    Eine Runde gilt als ungespielt, wenn in keinem normalen Match (kein BYE)
+    ein Ergebnis eingetragen wurde. Automatisch gesetzte BYE-Ergebnisse werden
+    dabei ignoriert.
+    """
+    if not os.path.exists(round_file):
+        return False
+
+    try:
+        with open(round_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for match in reader:
+                player2 = (match.get("player2") or "").strip()
+                if player2 == "BYE":
+                    continue
+
+                raw_score1 = (match.get("score1") or "").strip()
+                raw_score2 = (match.get("score2") or "").strip()
+                raw_draws = (match.get("score_draws") or "").strip()
+
+                # Sobald für ein normales Match irgendetwas gespeichert wurde,
+                # behandeln wir die Runde als begonnen.
+                if raw_score1 != "" or raw_score2 != "" or raw_draws != "":
+                    return False
+
+            return True
+    except (IOError, OSError):
+        return False
+
 @main.route("/next_round", methods=["POST"])
 def next_round():
     tournament_id = session.get("tournament_id")
@@ -736,8 +896,16 @@ def next_round():
         data_dir = os.path.join("data", tournament_id)
         rounds_dir = os.path.join(data_dir, "rounds")
         if os.path.exists(rounds_dir):
-            total_rounds = len([f for f in os.listdir(rounds_dir) if f.startswith("round_") and f.endswith(".csv")])
-            return redirect(url_for("main.show_round", round_number=total_rounds))
+            round_numbers = []
+            for filename in os.listdir(rounds_dir):
+                if filename.startswith("round_") and filename.endswith(".csv"):
+                    try:
+                        round_numbers.append(int(filename.replace("round_", "").replace(".csv", "")))
+                    except ValueError:
+                        continue
+            if round_numbers:
+                return redirect(url_for("main.show_round", round_number=max(round_numbers)))
+            return redirect(url_for("main.index"))
         else:
             return redirect(url_for("main.index"))
 
@@ -754,21 +922,39 @@ def next_round():
         player_groups = json.load(f)
     
     # Stelle sicher, dass die markierten Spieler in der Session bleiben
-    if "leg_players_set" not in session:
-        session["leg_players_set"] = []
+    session["leg_players_set"] = get_marked_players_for_tournament(tournament_id)
     
     # Debug-Ausgabe der markierten Spieler
     marked_players = session.get("leg_players_set", [])
-    print(f"Markierte Spieler (mit 🦵): {marked_players}")
+    print(f"Markierte Spieler (Dropout): {marked_players}")
     
     # Bestimme die aktuelle Runde
-    current_round = len([f for f in os.listdir(rounds_dir) if f.startswith('round_') and f.endswith('.csv')])
+    round_numbers = []
+    for filename in os.listdir(rounds_dir):
+        if filename.startswith('round_') and filename.endswith('.csv'):
+            try:
+                round_numbers.append(int(filename.replace("round_", "").replace(".csv", "")))
+            except ValueError:
+                continue
+    current_round = max(round_numbers) if round_numbers else 0
+    if current_round == 0:
+        flash("Es existiert noch keine Runde, von der aus fortgesetzt werden kann.")
+        return redirect(url_for("main.index"))
+
+    # Runde muss vollständig abgeschlossen sein, bevor neue Paarungen erzeugt werden.
+    current_round_file = os.path.join(rounds_dir, f"round_{current_round}.csv")
+    is_complete, message = validate_round_completion(current_round_file)
+    if not is_complete:
+        flash(f"Nächste Runde nicht möglich: {message}")
+        return redirect(url_for("main.show_round", round_number=current_round))
 
     # Berechne den Leaderboard für die aktuelle Runde
     leaderboard = calculate_leaderboard(tournament_id, current_round)
     
     # Lade die Gegner-Historie
     opponents = get_player_opponents(tournament_id, current_round)
+    # Lade BYE-Historie für faire BYE-Vergabe
+    bye_counts = get_player_bye_counts(tournament_id, current_round)
     
     # Erstelle neue Paarungen für die nächste Runde
     match_list = []
@@ -797,8 +983,18 @@ def next_round():
         sorted_players = [p[0] for p in sorted_players]
         
         if len(sorted_players) % 2 != 0:
-            # Der niedrigstplatzierte Spieler bekommt ein BYE
-            bye_player = sorted_players.pop()
+            # Faire BYE-Vergabe:
+            # - bevorzugt Spieler mit weniger bisherigen BYEs
+            # - bei Gleichstand weiterhin eher niedriger platzierte Spieler
+            min_bye_count = min(bye_counts.get(p, 0) for p in sorted_players)
+            bye_player = None
+            for candidate in reversed(sorted_players):
+                if bye_counts.get(candidate, 0) == min_bye_count:
+                    bye_player = candidate
+                    break
+            if bye_player is None:
+                bye_player = sorted_players[-1]
+            sorted_players.remove(bye_player)
             match_list.append({
                 "table": str(table_nr),
                 "player1": bye_player,
@@ -810,6 +1006,7 @@ def next_round():
                 "group_key": group_key  # Speichere den zusammengesetzten Schlüssel
             })
             table_nr += 1
+            bye_counts[bye_player] += 1
             print(f"BYE-Match: {bye_player} vs BYE mit automatischem Ergebnis 2:0:0")
         
         # Matche die restlichen Spieler
@@ -853,27 +1050,11 @@ def next_round():
     next_round_file = os.path.join(rounds_dir, f'round_{next_round_number}.csv')
     
     with open(next_round_file, 'w', newline='', encoding='utf-8') as f:
-        # Stelle sicher, dass die 🦵-Symbole bei den Spielernamen erhalten bleiben
         for match in match_list:
-            # Bereite die display_player Felder vor
-            match['display_player1'] = match['player1']
-            match['display_player2'] = match['player2']
-            
-            if is_player_marked(match['player1']):
-                match['display_player1'] = get_display_name(match['player1'])
-                print(f"next_round: Setze display_player1 für {match['player1']} auf {match['display_player1']}")
-            
-            if match['player2'] != "BYE" and is_player_marked(match['player2']):
-                match['display_player2'] = get_display_name(match['player2'])
-                print(f"next_round: Setze display_player2 für {match['player2']} auf {match['display_player2']}")
-            elif match['player2'] == "BYE":
-                match['display_player2'] = "BYE"
-                
             # Debug-Ausgabe für Spielernamen in der Runde
-            print(f"Match: {match['display_player1']} vs {match['display_player2']} (Original: {match['player1']} vs {match['player2']})")
-                
-        # Verwende erweiterte Feldliste mit display_player Feldern und group_key
-        writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'table_size', 'group_key', 'display_player1', 'display_player2'])
+            print(f"Match: {match['player1']} vs {match['player2']}")
+
+        writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'table_size', 'group_key'])
         writer.writeheader()
         writer.writerows(match_list)
 
@@ -903,8 +1084,18 @@ def next_round():
     # Leite zur show_round Route weiter
     return redirect(url_for('main.show_round', round_number=next_round_number))
 
-@main.route("/start_tournament", methods=["GET"])
+@main.route("/start_tournament", methods=["GET", "POST"])
 def start_tournament():
+    # GET aus alten Links: keine direkte Aktion ohne explizite Bestätigung
+    if request.method == "GET":
+        flash("Bitte neues Turnier explizit über den Button mit Bestätigung starten.")
+        return redirect(url_for("main.index"))
+
+    # Serverseitige Absicherung gegen versehentliche Requests
+    if request.form.get("force_new") != "1":
+        flash("Neues Turnier wurde nicht gestartet (Bestätigung fehlt).")
+        return redirect(url_for("main.index"))
+
     # Vollständiges Zurücksetzen - vor dem Zugriff auf alte Turnier-ID
     session.clear()
     
@@ -918,128 +1109,37 @@ def start_tournament():
     # Explizit den Turnierstatus zurücksetzen
     session["tournament_ended"] = False
     
-    # Erstelle ein neues Datenverzeichnis für das Turnier
-    data_dir = os.path.join("data", new_tournament_id)
-    os.makedirs(data_dir, exist_ok=True)
-    
-    # Lösche die end_time.txt aus dem neuen Verzeichnis, falls sie durch einen
-    # Race Condition bereits existieren sollte (unwahrscheinlich, aber sicher ist sicher)
-    end_time_file = os.path.join(data_dir, "end_time.txt")
-    if os.path.exists(end_time_file):
-        try:
-            os.remove(end_time_file)
-            print(f"Unerwartete end_time.txt für neues Turnier {new_tournament_id} gelöscht")
-        except Exception as e:
-            print(f"Fehler beim Löschen einer unerwarteten end_time.txt: {e}")
-    
-    # Leere tournament_power_nine.json Datei erstellen
-    power_nine_file = os.path.join(data_dir, "tournament_power_nine.json")
-    with open(power_nine_file, 'w', encoding='utf-8') as f:
-        json.dump({}, f)
-    
-    print(f"Neues Turnier mit ID {new_tournament_id} wurde erfolgreich gestartet")
+    # Kein Datenordner anlegen: Das eigentliche Turnier wird erst bei /pair erstellt.
+    # So verhindern wir "Runde 0 • 0 Spieler"-Platzhalter.
+    print(f"Neues Turnier mit ID {new_tournament_id} vorbereitet")
     return redirect(url_for("main.index"))
 
 @main.route("/continue_tournament", methods=["GET"])
 def continue_tournament():
-    """
-    Setzt ein laufendes Turnier fort.
-    
-    Ablauf:
-    1. Prüft die Turnier-ID
-    2. Lädt die letzten Ergebnisse
-    3. Berechnet die aktuellen Statistiken
-    4. Zeigt das aktuelle Leaderboard und die letzten Paarungen
-    """
-    # 1. Turnier-ID prüfen
-    tid = session.get("tournament_id")
-    if not tid:
-        return redirect("/")
+    """Setzt ein laufendes Turnier fort, indem auf die letzte Runde umgeleitet wird."""
+    tournament_id = session.get("tournament_id")
+    if not tournament_id:
+        flash("Kein aktives Turnier gefunden.")
+        return redirect(url_for("main.index"))
 
-    # 2. Datenverzeichnis und Datei prüfen
-    if not ensure_data_directory():
-        return "<h2>Fehler: Datenverzeichnis nicht verfügbar!</h2><p><a href='/'>Zurück</a></p>"
+    rounds_dir = os.path.join("data", tournament_id, "rounds")
+    if not os.path.exists(rounds_dir):
+        flash("Für dieses Turnier sind noch keine Runden vorhanden.")
+        return redirect(url_for("main.index"))
 
-    results_file = os.path.join("tournament_data", "results.csv")
-    if not os.path.exists(results_file):
-        return "<h2>Keine gespeicherten Resultate gefunden.</h2><p><a href='/'>Zurück</a></p>"
+    round_numbers = []
+    for filename in os.listdir(rounds_dir):
+        if filename.startswith("round_") and filename.endswith(".csv"):
+            try:
+                round_numbers.append(int(filename.replace("round_", "").replace(".csv", "")))
+            except ValueError:
+                continue
 
-    # 3. Letzte Runde finden
-    try:
-        with open(results_file, newline="", encoding="utf-8") as csvfile:
-            reader = csv.DictReader(csvfile)
-            rows = [row for row in reader if row["Tournament"] == tid]
+    if not round_numbers:
+        flash("Für dieses Turnier sind noch keine Runden vorhanden.")
+        return redirect(url_for("main.index"))
 
-        if not rows:
-            return "<h2>Keine gespeicherten Resultate für dieses Turnier gefunden.</h2><p><a href='/'>Zurück</a></p>"
-
-        # Sortiere nach Zeitstempel und finde die letzte Runde
-        rows.sort(key=lambda x: x["Timestamp"], reverse=True)
-        last_timestamp = rows[0]["Timestamp"]
-        last_round = [r for r in rows if r["Timestamp"] == last_timestamp]
-
-    except (IOError, OSError) as e:
-        return f"<h2>Fehler beim Lesen der Ergebnisse: {str(e)}</h2><p><a href='/'>Zurück</a></p>"
-
-    # 4. Paarungen der letzten Runde vorbereiten
-    pairings = defaultdict(list)
-    match_list = []
-    players_set = set()
-
-    for r in last_round:
-        t = int(r["Table"])
-        p1 = r["Player 1"]
-        p2 = r["Player 2"]
-        pairings[t].extend([p1, p2])
-        match_list.append({
-            "table": t,
-            "player1": p1,
-            "player2": p2
-        })
-        players_set.update([p1, p2])
-
-    # 5. Spielergruppen vorbereiten
-    group_list = []
-    for t in sorted(pairings.keys()):
-        unique_players = sorted(set(pairings[t]))
-        group_list.append(unique_players)
-
-    # 6. Statistiken berechnen
-    stats = calculate_mtg_stats(results_file, tid)
-    tiebreakers = calculate_tiebreakers(stats)
-
-    # 7. Leaderboard erstellen
-    leaderboard = []
-    for player, player_stats in stats.items():
-        omw = calculate_opponents_match_percentage(player, stats)
-        gw = calculate_game_win_percentage(player_stats)
-        ogw = calculate_opponents_game_win_percentage(player, stats)
-        
-        # Formatiere das Ergebnis als Match-Ergebnisse (Wins-Losses-Draws)
-        # Verwende die Match-Siege und -Niederlagen statt der Spielergebnisse
-        if player_stats['draws'] > 0:
-            game_score = f"{player_stats['wins']} - {player_stats['losses']} - {player_stats['draws']}"
-        else:
-            game_score = f"{player_stats['wins']} - {player_stats['losses']}"
-            
-        leaderboard.append((
-            player,
-            player_stats['points'],
-            game_score,  # Format: Match-Wins - Match-Losses - Match-Draws
-            f"{omw:.2%}",
-            f"{gw:.2%}",
-            f"{ogw:.2%}"
-        ))
-
-    # Sortiere nach Punkten, OMW%, GW% und OGW% (gemäß der vorgegebenen Reihenfolge der Tiebreaker)
-    leaderboard.sort(key=lambda x: (
-        -int(x[1]),  # Punkte (absteigend)
-        -float(x[3].replace('%', '')),  # OMW% (absteigend)
-        -float(x[4].replace('%', '')),  # GW% (absteigend)
-        -float(x[5].replace('%', '')),  # OGW% (absteigend)
-        x[0]  # Bei Gleichstand alphabetisch nach Namen (aufsteigend)
-    ))
-    return leaderboard
+    return redirect(url_for("main.show_round", round_number=max(round_numbers)))
 
 @main.route("/end_tournament", methods=["POST"])
 def end_tournament():
@@ -1050,8 +1150,39 @@ def end_tournament():
     # Berechne den finalen Leaderboard
     data_dir = os.path.join("data", tournament_id)
     rounds_dir = os.path.join(data_dir, "rounds")
+    total_rounds = 0
     if os.path.exists(rounds_dir):
-        total_rounds = len([f for f in os.listdir(rounds_dir) if f.startswith("round_") and f.endswith(".csv")])
+        round_numbers = []
+        for filename in os.listdir(rounds_dir):
+            if filename.startswith("round_") and filename.endswith(".csv"):
+                try:
+                    round_numbers.append(int(filename.replace("round_", "").replace(".csv", "")))
+                except ValueError:
+                    continue
+        total_rounds = max(round_numbers) if round_numbers else 0
+
+        # Nur vollständig abgeschlossene letzte Runde darf als final gewertet werden.
+        # Ausnahme: eine versehentlich eröffnete, noch ungespielte letzte Runde
+        # wird automatisch verworfen und das Turnier mit der vorherigen Runde beendet.
+        if total_rounds > 0:
+            latest_round_file = os.path.join(rounds_dir, f"round_{total_rounds}.csv")
+            is_complete, message = validate_round_completion(latest_round_file)
+            if not is_complete:
+                if total_rounds > 1 and is_round_unplayed(latest_round_file):
+                    try:
+                        os.remove(latest_round_file)
+                        total_rounds -= 1
+                        flash(
+                            "Die letzte Runde war noch ungespielt und wurde verworfen. "
+                            "Das Turnier wurde mit der vorherigen Runde beendet."
+                        )
+                    except OSError as e:
+                        flash(f"Turnier kann nicht beendet werden: Letzte Runde konnte nicht verworfen werden ({e}).")
+                        return redirect(url_for("main.show_round", round_number=total_rounds))
+                else:
+                    flash(f"Turnier kann nicht beendet werden: {message}")
+                    return redirect(url_for("main.show_round", round_number=total_rounds))
+
         final_leaderboard = calculate_leaderboard(tournament_id, total_rounds)
     else:
         final_leaderboard = []
@@ -1068,6 +1199,8 @@ def end_tournament():
         "id": tournament_id,
         "end_date": datetime.now().strftime("%d.%m.%Y %H:%M"),
         "total_rounds": total_rounds,
+        "group_id": get_tournament_group_id(tournament_id),
+        "group_name": get_tournament_group_name(tournament_id),
         "player_groups": player_groups,
         "is_ended": True  # Markiere das Turnier als beendet
     }
@@ -1137,8 +1270,11 @@ def show_round(round_number):
     if os.path.exists(rounds_dir):
         for filename in os.listdir(rounds_dir):
             if filename.startswith("round_") and filename.endswith(".csv"):
-                round_num = int(filename.strip("round_").strip(".csv"))
-                total_rounds = max(total_rounds, round_num)
+                try:
+                    round_num = int(filename.replace("round_", "").replace(".csv", ""))
+                    total_rounds = max(total_rounds, round_num)
+                except ValueError:
+                    continue
     
     # Lade die aktuellen Rundendaten
     matches = []
@@ -1160,21 +1296,14 @@ def show_round(round_number):
                 'dropout1': row.get('dropout1', 'false'),
                 'dropout2': row.get('dropout2', 'false'),
                 'table_size': row.get('table_size', ''),
-                'group_key': row.get('group_key', row.get('table_size', '')),
-                'display_player1': row['player1'],
-                'display_player2': row['player2'],
+                'group_key': row.get('group_key', row.get('table_size', ''))
             }
-            
-            # Füge 🦵-Symbol für markierte Spieler hinzu
-            if row.get('dropout1', 'false') == 'true' and '🦵' not in match['display_player1']:
-                match['display_player1'] += ' 🦵'
-            if row.get('dropout2', 'false') == 'true' and '🦵' not in match['display_player2']:
-                match['display_player2'] += ' 🦵'
                 
             matches.append(match)
     
     # Lade das Leaderboard für das Turnier bis zu dieser Runde
     leaderboard = calculate_leaderboard(tournament_id, round_number)
+    bye_counts = get_player_bye_counts(tournament_id, round_number)
     
     # Prüfe, ob das Turnier beendet ist - zweifache Prüfung für Konsistenz
     tournament_ended = check_tournament_status(tournament_id)
@@ -1218,19 +1347,20 @@ def show_round(round_number):
         current_round=round_number,
         total_rounds=total_rounds,
         leaderboard=leaderboard,
+        bye_counts=bye_counts,
         tournament_ended=tournament_ended,
         all_players_data=all_players_data
     )
 
 def calculate_opponents_match_percentage(player, stats):
     """Berechnet den OMW% (Opponents Match Win Percentage) für einen Spieler."""
-    if player not in stats:
+    if player not in stats or player == "BYE":
         return 0.0
     
     # Sammle alle Gegner des Spielers
     opponents = []
     for opponent, opponent_stats in stats.items():
-        if opponent == player:  # Überspringe den Spieler selbst
+        if opponent == player or opponent == "BYE":  # Überspringe Spieler selbst und BYE
             continue
         # Prüfe, ob dieser Spieler ein Gegner war
         if opponent in stats.get(player, {}).get('opponents', []):
@@ -1271,13 +1401,13 @@ def calculate_game_win_percentage(player_stats):
 
 def calculate_opponents_game_win_percentage(player, stats):
     """Berechnet den OGW% (Opponents Game Win Percentage) für einen Spieler."""
-    if player not in stats:
+    if player not in stats or player == "BYE":
         return 0.0
     
     # Sammle alle Gegner des Spielers
     opponents = []
     for opponent, opponent_stats in stats.items():
-        if opponent == player:  # Überspringe den Spieler selbst
+        if opponent == player or opponent == "BYE":  # Überspringe Spieler selbst und BYE
             continue
         # Prüfe, ob dieser Spieler ein Gegner war
         if opponent in stats.get(player, {}).get('opponents', []):
@@ -1344,13 +1474,20 @@ def calculate_leaderboard(tournament_id, up_to_round):
                         # Debug-Ausgabe
                         print(f"  Match: {player1} vs {player2}, Ergebnis: {score1}-{score2}-{score_draws}")
                         
+                        if player2 == "BYE":
+                            # BYE zählt nur für den aktiven Spieler.
+                            # BYE darf keine eigenen Stats/Opponents erzeugen und keine Tiebreaker verfälschen.
+                            stats[player1]['points'] += 3
+                            stats[player1]['wins'] += 1
+                            stats[player1]['total_wins'] += score1
+                            stats[player1]['total_losses'] += score2
+                            stats[player1]['total_draws'] += score_draws
+                            stats[player1]['matches'] += 1
+                            continue
+
                         # Aktualisiere die Gegner-Listen
-                        if player2 != "BYE":
-                            stats[player1]['opponents'].append(player2)
-                            stats[player2]['opponents'].append(player1)
-                        else:
-                            # Bei BYE nur für Spieler 1 einen Gegner hinzufügen
-                            stats[player1]['opponents'].append(player2)
+                        stats[player1]['opponents'].append(player2)
+                        stats[player2]['opponents'].append(player1)
                         
                         # Aktualisiere die Statistiken für beide Spieler
                         if score1 > score2:
@@ -1390,6 +1527,8 @@ def calculate_leaderboard(tournament_id, up_to_round):
     # Erstelle den Leaderboard
     leaderboard = []
     for player, player_stats in stats.items():
+        if player == "BYE":
+            continue
         omw = calculate_opponents_match_percentage(player, stats)
         gw = calculate_game_win_percentage(player_stats)
         ogw = calculate_opponents_game_win_percentage(player, stats)
@@ -1422,24 +1561,38 @@ def calculate_leaderboard(tournament_id, up_to_round):
 
 @main.route("/delete_tournament/<tournament_id>", methods=["POST"])
 def delete_tournament(tournament_id):
-    """Löscht die Daten eines vergangenen Turniers"""
+    """Löscht ein Turnier (laufend oder vergangen)."""
+    if not is_valid_tournament_id(tournament_id):
+        return jsonify({"success": False, "message": "Ungültige Turnier-ID"}), 400
+
     # Pfade zu den Turnierdaten
     tournament_results_dir = "tournament_results"
     results_file = os.path.join(tournament_results_dir, f"{tournament_id}_results.json")
+    data_dir = os.path.join("data", tournament_id)
     
-    # Prüfe, ob das Turnier existiert
-    if not os.path.exists(results_file):
+    # Prüfe, ob das Turnier existiert (entweder als laufendes oder archiviertes Turnier)
+    has_results = os.path.exists(results_file)
+    has_data = os.path.exists(data_dir) and os.path.isdir(data_dir)
+    if not has_results and not has_data:
         return jsonify({"success": False, "message": "Turnier nicht gefunden"}), 404
     
     try:
-        # Lösche die Turnierdatei
-        os.remove(results_file)
-        
-        # Lösche auch die zugehörigen Daten im data-Verzeichnis
-        data_dir = os.path.join("data", tournament_id)
-        if os.path.exists(data_dir) and os.path.isdir(data_dir):
+        # Lösche Archivdatei falls vorhanden
+        if has_results:
+            os.remove(results_file)
+
+        # Lösche zugehörige Daten im data-Verzeichnis
+        if has_data:
             import shutil
             shutil.rmtree(data_dir)
+
+        # Falls aktuell geladenes Turnier gelöscht wurde, Session bereinigen
+        if session.get("tournament_id") == tournament_id:
+            session.pop("tournament_id", None)
+            session.pop("leg_players_set", None)
+            session.pop("tournament_ended", None)
+
+        remove_tournament_group(tournament_id)
         
         return jsonify({"success": True, "message": "Turnier erfolgreich gelöscht"})
     except Exception as e:
@@ -1450,6 +1603,17 @@ def players_list():
     """Zeigt eine Übersichtsseite mit allen Spielern"""
     # Importiere das player_stats Modul
     from .player_stats import get_all_players, load_player_data, get_player_statistics
+
+    tournament_groups = load_tournament_groups()
+    valid_group_ids = {group["id"] for group in tournament_groups}
+    stats_scope = request.args.get("scope", "global")
+    selected_group_id = request.args.get("group_id", DEFAULT_GROUP_ID)
+    if selected_group_id not in valid_group_ids:
+        selected_group_id = DEFAULT_GROUP_ID
+    if stats_scope != "group":
+        stats_scope = "global"
+
+    stats_group_id = selected_group_id if stats_scope == "group" else None
     
     # Sammle alle Spieler
     all_players = get_all_players()
@@ -1463,7 +1627,7 @@ def players_list():
             
         # Lade Spielerdaten und Statistiken
         player_data = load_player_data(player)
-        player_stats = get_player_statistics(player)
+        player_stats = get_player_statistics(player, group_id=stats_group_id)
         
         # Verwende die neue Gesamtzahl der Power Nine Karten aus den Statistiken
         power_nine_count = player_stats.get("power_nine_total", 0)
@@ -1485,7 +1649,10 @@ def players_list():
     
     return render_template(
         "players_list.html",
-        players=sorted_players
+        players=sorted_players,
+        stats_scope=stats_scope,
+        selected_group_id=selected_group_id,
+        tournament_groups=tournament_groups,
     )
 
 @main.route("/player/<player_name>")
@@ -1498,17 +1665,30 @@ def player_profile(player_name):
     
     # Importiere das player_stats Modul
     from .player_stats import load_player_data, get_player_statistics, POWER_NINE
+
+    tournament_groups = load_tournament_groups()
+    valid_group_ids = {group["id"] for group in tournament_groups}
+    stats_scope = request.args.get("scope", "global")
+    selected_group_id = request.args.get("group_id", DEFAULT_GROUP_ID)
+    if selected_group_id not in valid_group_ids:
+        selected_group_id = DEFAULT_GROUP_ID
+    if stats_scope != "group":
+        stats_scope = "global"
+    stats_group_id = selected_group_id if stats_scope == "group" else None
     
     # Lade Spielerdaten
     player_data = load_player_data(player_name)
-    player_stats = get_player_statistics(player_name)
+    player_stats = get_player_statistics(player_name, group_id=stats_group_id)
     
     return render_template(
         "player_profile.html",
         player_name=player_name,
         player_data=player_data,
         player_stats=player_stats,
-        power_nine=POWER_NINE
+        power_nine=POWER_NINE,
+        stats_scope=stats_scope,
+        selected_group_id=selected_group_id,
+        tournament_groups=tournament_groups,
     )
 
 @main.route("/player/<player_name>/delete", methods=["POST"])
@@ -1677,20 +1857,17 @@ def check_tournament_status(tournament_id):
     if not tournament_id:
         return False
     
-    # Prüfe Session-Variable
-    session_tournament_ended = session.get("tournament_ended", False)
-    
-    # Prüfe Datei
+    # Prüfe persistenten Status auf Dateiebene
     data_dir = os.path.join("data", tournament_id)
     end_time_file = os.path.join(data_dir, "end_time.txt")
     file_tournament_ended = os.path.exists(end_time_file)
+    results_file = os.path.join("tournament_results", f"{tournament_id}_results.json")
+    archived_tournament_ended = os.path.exists(results_file)
     
-    # Verwende BEIDE Statusprüfungen - wenn EINER True ist, ist das Turnier beendet
-    tournament_ended = session_tournament_ended or file_tournament_ended
-    
-    # Stelle sicher, dass Session und Datei konsistent sind
-    if session_tournament_ended != file_tournament_ended:
+    # Session-Status darf nur für das AKTUELLE Turnier gelten, sonst entstehen False-Positives.
+    tournament_ended = file_tournament_ended or archived_tournament_ended
+
+    if session.get("tournament_id") == tournament_id:
         session["tournament_ended"] = tournament_ended
-        print(f"Warnung: Inkonsistenter Turnierstatus korrigiert - Session: {session_tournament_ended}, Datei: {file_tournament_ended}, Final: {tournament_ended}")
     
     return tournament_ended

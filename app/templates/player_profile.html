@@ -416,7 +416,7 @@
 <body>
     <div class="navigation">
         <div class="nav-buttons">
-            <a href="{{ url_for('main.players_list') }}" class="nav-button">← Zurück zur Spielerliste</a>
+            <a href="{{ url_for('main.players_list', scope=stats_scope, group_id=selected_group_id) }}" class="nav-button">← Zurück zur Spielerliste</a>
             <a href="{{ url_for('main.index') }}" class="nav-button">Zur Startseite</a>
         </div>
         <div class="delete-button" onclick="showDeleteConfirmation('{{ player_name }}')">✖</div>
@@ -424,6 +424,19 @@
 
     <div class="profile-header">
         <h1>{{ player_name }}</h1>
+        <form method="GET" action="{{ url_for('main.player_profile', player_name=player_name) }}" style="display:flex; gap:10px; justify-content:center; align-items:center; flex-wrap:wrap; margin-bottom:15px;">
+            <label for="scope" style="font-weight:600;">Statistik-Scope:</label>
+            <select id="scope" name="scope" onchange="this.form.submit()" style="padding:8px 10px; border:1px solid #d7e2ef; border-radius:8px;">
+                <option value="global" {% if stats_scope == 'global' %}selected{% endif %}>Global</option>
+                <option value="group" {% if stats_scope == 'group' %}selected{% endif %}>Nur Gruppe</option>
+            </select>
+            <select id="group_id" name="group_id" {% if stats_scope != 'group' %}disabled{% endif %} onchange="this.form.submit()" style="padding:8px 10px; border:1px solid #d7e2ef; border-radius:8px;">
+                {% for group in tournament_groups %}
+                    <option value="{{ group.id }}" {% if group.id == selected_group_id %}selected{% endif %}>{{ group.name }}</option>
+                {% endfor %}
+            </select>
+            <noscript><button type="submit" class="nav-button" style="border:none; cursor:pointer;">Anwenden</button></noscript>
+        </form>
         
         <div class="player-summary">
             {% if player_stats.power_nine_total > 0 %}

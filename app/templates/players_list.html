@@ -103,17 +103,20 @@
             display: block;
             margin-top: 20px;
             padding: 10px;
-            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+            background: linear-gradient(135deg, #5f6b7a 0%, #3f4a57 100%);
             color: white;
             text-align: center;
             border-radius: 8px;
             text-decoration: none;
-            font-weight: 500;
-            transition: transform 0.3s ease;
+            font-weight: 600;
+            border: 1px solid rgba(44, 62, 80, 0.35);
+            box-shadow: 0 4px 10px rgba(44, 62, 80, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
 
         .view-profile-btn:hover {
-            transform: scale(1.03);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 14px rgba(44, 62, 80, 0.28);
         }
 
         .navigation {
@@ -141,6 +144,10 @@
             font-size: 1.4em;
             margin: 15px 0;
             text-align: center;
+            background: linear-gradient(135deg, rgba(74, 144, 226, 0.08) 0%, rgba(46, 204, 113, 0.08) 100%);
+            border: 1px solid rgba(74, 144, 226, 0.2);
+            border-radius: 10px;
+            padding: 10px 8px;
         }
 
         .win-percentage span {
@@ -177,6 +184,19 @@
         <div class="page-description">
             Übersicht aller Spieler mit ihren Statistiken und Power Nine Karten.
         </div>
+        <form method="GET" action="{{ url_for('main.players_list') }}" style="display:flex; gap:10px; justify-content:center; align-items:center; flex-wrap:wrap;">
+            <label for="scope" style="font-weight:600;">Statistik-Scope:</label>
+            <select id="scope" name="scope" onchange="this.form.submit()" style="padding:8px 10px; border:1px solid #d7e2ef; border-radius:8px;">
+                <option value="global" {% if stats_scope == 'global' %}selected{% endif %}>Global</option>
+                <option value="group" {% if stats_scope == 'group' %}selected{% endif %}>Nur Gruppe</option>
+            </select>
+            <select id="group_id" name="group_id" {% if stats_scope != 'group' %}disabled{% endif %} onchange="this.form.submit()" style="padding:8px 10px; border:1px solid #d7e2ef; border-radius:8px;">
+                {% for group in tournament_groups %}
+                    <option value="{{ group.id }}" {% if group.id == selected_group_id %}selected{% endif %}>{{ group.name }}</option>
+                {% endfor %}
+            </select>
+            <noscript><button type="submit" class="back-button" style="padding:8px 14px;">Anwenden</button></noscript>
+        </form>
     </div>
 
     <div class="player-list">
@@ -206,7 +226,7 @@
                     </div>
                 </div>
                 
-                <a href="{{ url_for('main.player_profile', player_name=player_name) }}" class="view-profile-btn">
+                <a href="{{ url_for('main.player_profile', player_name=player_name, scope=stats_scope, group_id=selected_group_id) }}" class="view-profile-btn">
                     Profil ansehen
                 </a>
             </div>

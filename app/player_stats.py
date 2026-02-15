@@ -1,6 +1,7 @@
 import os
 import json
 from typing import Dict, Any, List, Set
+from .tournament_groups import load_tournament_meta, normalize_group_id
 
 # Definiere die Struktur der Power Nine Karten
 POWER_NINE = [
@@ -271,13 +272,15 @@ def get_all_players() -> Set[str]:
     
     return all_players
 
-def get_player_statistics(player_name: str) -> Dict[str, Any]:
-    """Berechnet die Statistiken für einen Spieler über alle Turniere hinweg"""
+def get_player_statistics(player_name: str, group_id: str = None) -> Dict[str, Any]:
+    """Berechnet Spielerstatistiken global oder gruppengefiltert."""
     from collections import defaultdict
     stats = defaultdict(int)
     tournaments_played = set()
     opponents = set()
     power_nine_count = 0  # Gesamtzähler für alle Power Nine Karten über alle Turniere
+    normalized_group_id = normalize_group_id(group_id) if group_id else None
+    tournament_meta = load_tournament_meta()
     
     # Dictionary für die individuelle Zählung jeder Power Nine Karte
     power_nine_individual_counts = {card: 0 for card in POWER_NINE}
@@ -291,6 +294,11 @@ def get_player_statistics(player_name: str) -> Dict[str, Any]:
                 reader = csv.DictReader(f)
                 for row in reader:
                     tournament_id = row.get("Tournament", "")
+                    tournament_group_id = normalize_group_id(
+                        tournament_meta.get(tournament_id, {}).get("group_id")
+                    )
+                    if normalized_group_id and tournament_group_id != normalized_group_id:
+                        continue
                     
                     # Überprüfe, ob der Spieler in diesem Match vorkam
                     if row.get("Player 1") == player_name:
