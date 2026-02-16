@@ -738,6 +738,11 @@
 
         <form method="POST" action="{{ url_for('main.start_tables') }}" id="tableBuilderForm">
             <input type="hidden" name="tables_payload" id="tablesPayload">
+            <datalist id="knownPlayersList">
+                {% for player_name in known_player_names %}
+                    <option value="{{ player_name }}"></option>
+                {% endfor %}
+            </datalist>
             <div style="margin: 4px 0 12px 0;">
                 <a href="{{ url_for('main.manage_groups') }}" style="font-size: 0.9rem; color: #1e3a8a; text-decoration: none; font-weight: 600;">Gruppen verwalten</a>
             </div>
@@ -872,6 +877,7 @@
     <script>
         const GROUP_OPTIONS = {{ tournament_groups | tojson }};
         const CUBE_OPTIONS = {{ allowed_cubes | tojson }};
+        const KNOWN_PLAYER_NAMES = {{ known_player_names | tojson }};
         const DEFAULT_GROUP_ID = {{ selected_group_id | tojson }};
         const DEFAULT_CUBE_ID = {{ selected_cube | tojson }};
         const TABLE_SIZE_OPTIONS = [6, 8, 10, 12];
@@ -941,19 +947,19 @@
                             >🏆 Grotto-Gang hinzufügen</button>
                         </div>
                         <div class="table-config-row">
-                            <label>Cube
+                            <label><a href="{{ url_for('main.manage_cubes') }}" style="font-weight:600; color: #1e3a8a; text-decoration: none;">Cube</a>
                                 <select class="builder-select" onchange="updateTableField(${index}, 'cube_id', this.value)">
                                     ${createOptions(CUBE_OPTIONS, table.cube_id)}
                                 </select>
                             </label>
-                            <label>Gruppe
+                            <label><a href="{{ url_for('main.manage_groups') }}" style="font-weight:600; color: #1e3a8a; text-decoration: none;">Gruppe</a>
                                 <select class="builder-select" onchange="updateTableField(${index}, 'group_id', this.value)">
                                     ${createOptions(GROUP_OPTIONS, table.group_id)}
                                 </select>
                             </label>
                         </div>
                         <div class="player-input-section">
-                            <input type="text" id="playerInput_${index}" class="player-input-field" placeholder="Spielername eingeben...">
+                            <input type="text" id="playerInput_${index}" class="player-input-field" placeholder="Spielername eingeben..." list="knownPlayersList" autocomplete="off">
                             <button type="button" class="add-player-btn" onclick="addPlayerToTable(${index})">Hinzufügen</button>
                         </div>
                         <table class="players-table">
@@ -1004,19 +1010,129 @@
             }
         }
 
+        function normalizeNameForCompare(value) {
+            return String(value || '')
+                .trim()
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ');
+        }
+
+        function levenshteinDistance(a, b) {
+            const m = a.length;
+            const n = b.length;
+            if (m === 0) return n;
+            if (n === 0) return m;
+
+            const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+            for (let i = 0; i <= m; i += 1) dp[i][0] = i;
+            for (let j = 0; j <= n; j += 1) dp[0][j] = j;
+
+            for (let i = 1; i <= m; i += 1) {
+                for (let j = 1; j <= n; j += 1) {
+                    const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                    dp[i][j] = Math.min(
+                        dp[i - 1][j] + 1,
+                        dp[i][j - 1] + 1,
+                        dp[i - 1][j - 1] + cost
+                    );
+                }
+            }
+            return dp[m][n];
+        }
+
+        function getSimilarity(a, b) {
+            if (!a && !b) return 1;
+            const maxLen = Math.max(a.length, b.length);
+            if (maxLen === 0) return 1;
+            const distance = levenshteinDistance(a, b);
+            return 1 - (distance / maxLen);
+        }
+
+        function getCurrentPlayerPool() {
+            const inTables = tableConfigs.flatMap((table) => table.players);
+            const merged = new Set([...KNOWN_PLAYER_NAMES, ...inTables]);
+            return Array.from(merged).filter(Boolean);
+        }
+
+        function findClosestKnownName(inputName) {
+            const normalizedInput = normalizeNameForCompare(inputName);
+            if (!normalizedInput) {
+                return null;
+            }
+            let best = null;
+            const playerPool = getCurrentPlayerPool();
+            for (const candidate of playerPool) {
+                const normalizedCandidate = normalizeNameForCompare(candidate);
+                if (!normalizedCandidate) {
+                    continue;
+                }
+                if (normalizedCandidate === normalizedInput) {
+                    return { name: candidate, score: 1 };
+                }
+                const similarity = getSimilarity(normalizedInput, normalizedCandidate);
+                if (!best || similarity > best.score) {
+                    best = { name: candidate, score: similarity };
+                }
+            }
+            if (!best) {
+                return null;
+            }
+            const normalizedLength = normalizedInput.length;
+            const threshold = normalizedLength <= 4 ? 0.9 : 0.82;
+            if (best.score >= threshold) {
+                return best;
+            }
+            return null;
+        }
+
+        function findAssignedDuplicate(nameToCheck) {
+            const normalizedTarget = normalizeNameForCompare(nameToCheck);
+            if (!normalizedTarget) {
+                return null;
+            }
+            for (const table of tableConfigs) {
+                for (const player of table.players) {
+                    if (normalizeNameForCompare(player) === normalizedTarget) {
+                        return player;
+                    }
+                }
+            }
+            return null;
+        }
+
         function addPlayerToTable(index, refocusInput = false) {
             const input = document.getElementById(`playerInput_${index}`);
             if (!input) return;
             const playerName = input.value.trim();
             if (!playerName) return;
-            if (tableConfigs.some((table) => table.players.includes(playerName))) {
-                alert(`Spieler "${playerName}" ist bereits in einem anderen Tisch.`);
+
+            const closest = findClosestKnownName(playerName);
+            let finalPlayerName = playerName;
+            if (closest && normalizeNameForCompare(closest.name) !== normalizeNameForCompare(playerName)) {
+                const shouldUseSuggested = confirm(
+                    `Ähnlicher Name gefunden: "${closest.name}".\n\n` +
+                    `OK = vorhandenen Namen übernehmen\n` +
+                    `Abbrechen = "${playerName}" trotzdem neu hinzufügen`
+                );
+                if (shouldUseSuggested) {
+                    finalPlayerName = closest.name;
+                }
+            } else if (closest && normalizeNameForCompare(closest.name) === normalizeNameForCompare(playerName)) {
+                finalPlayerName = closest.name;
+            }
+
+            const assignedDuplicate = findAssignedDuplicate(finalPlayerName);
+            if (assignedDuplicate) {
+                alert(`Spieler "${assignedDuplicate}" ist bereits in einem Tisch erfasst.`);
                 if (refocusInput) {
                     focusPlayerInput(index);
                 }
                 return;
             }
-            tableConfigs[index].players.push(playerName);
+
+            tableConfigs[index].players.push(finalPlayerName);
             input.value = '';
             renderTables();
             if (refocusInput) {

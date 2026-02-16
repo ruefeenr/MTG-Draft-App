@@ -107,6 +107,22 @@ class TableBuilderFlowTests(unittest.TestCase):
             self.assertIn("Weiteren Tisch hinzufügen", html)
             self.assertIn("addTestPlayers(", html)
 
+    def test_index_includes_known_player_autocomplete_and_fuzzy_logic(self):
+        with temp_cwd():
+            os.makedirs("data/players", exist_ok=True)
+            with open("data/players/players_data.json", "w", encoding="utf-8") as f:
+                json.dump({"Enrique": {"power_nine_count": 0}, "Chrigi": {"power_nine_count": 0}}, f)
+
+            app = create_app()
+            client = app.test_client()
+            response = client.get("/")
+            self.assertEqual(response.status_code, 200)
+            html = response.get_data(as_text=True)
+            self.assertIn('datalist id="knownPlayersList"', html)
+            self.assertIn('<option value="Enrique"></option>', html)
+            self.assertIn("findClosestKnownName", html)
+            self.assertIn("Ähnlicher Name gefunden", html)
+
 
 if __name__ == "__main__":
     unittest.main()

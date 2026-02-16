@@ -6,9 +6,12 @@ import csv
 from datetime import datetime
 from collections import defaultdict
 import json
+import unicodedata
 from .tournament_groups import (
     DEFAULT_GROUP_ID,
+    create_tournament_cube,
     create_tournament_group,
+    delete_tournament_cube,
     delete_tournament_group,
     get_cube_name,
     get_group_name,
@@ -21,7 +24,9 @@ from .tournament_groups import (
     is_valid_group_id,
     load_allowed_cubes,
     load_tournament_groups,
+    reassign_cube_in_meta,
     reassign_group_in_meta,
+    rename_tournament_cube,
     rename_tournament_group,
     remove_tournament_group,
     set_tournament_group,
@@ -271,8 +276,11 @@ def render_index_page(
     selected_cube="vintage",
     group_filter="all",
 ):
+    from .player_stats import get_all_players
+
     tournament_groups = load_tournament_groups()
     allowed_cubes = load_allowed_cubes()
+    known_player_names = sorted(get_all_players(), key=lambda name: name.casefold())
     allowed_cube_ids = {cube["id"] for cube in allowed_cubes}
     valid_group_ids = {group["id"] for group in tournament_groups}
     if selected_group_id not in valid_group_ids:
@@ -297,6 +305,7 @@ def render_index_page(
         active_tournaments=active_tournaments,
         tournament_groups=tournament_groups,
         allowed_cubes=allowed_cubes,
+        known_player_names=known_player_names,
         selected_group_id=selected_group_id,
         selected_cube=selected_cube,
         selected_group_filter=group_filter or "all",
@@ -353,6 +362,46 @@ def delete_group():
     else:
         flash(message, "success" if success else "error")
     return redirect(url_for("main.manage_groups"))
+
+
+@main.route("/cubes", methods=["GET"])
+def manage_cubes():
+    """Zeigt die Cube-Verwaltung an."""
+    return render_template(
+        "cubes.html",
+        tournament_cubes=load_allowed_cubes(),
+        default_cube_id="vintage",
+    )
+
+
+@main.route("/cubes/create", methods=["POST"])
+def create_cube():
+    cube_name = request.form.get("cube_name", "")
+    success, message, _ = create_tournament_cube(cube_name)
+    flash(message, "success" if success else "error")
+    return redirect(url_for("main.manage_cubes"))
+
+
+@main.route("/cubes/rename", methods=["POST"])
+def rename_cube():
+    cube_id = request.form.get("cube_id", "")
+    cube_name = request.form.get("cube_name", "")
+    success, message = rename_tournament_cube(cube_id, cube_name)
+    flash(message, "success" if success else "error")
+    return redirect(url_for("main.manage_cubes"))
+
+
+@main.route("/cubes/delete", methods=["POST"])
+def delete_cube():
+    cube_id = request.form.get("cube_id", "")
+    # Referenzen in Turnier-Metadaten zuerst auf Vintage setzen.
+    reassigned_count = reassign_cube_in_meta(cube_id, "vintage")
+    success, message = delete_tournament_cube(cube_id)
+    if success and reassigned_count > 0:
+        flash(f"{message} {reassigned_count} Turnier(e) wurden auf 'Vintage' umgestellt.", "success")
+    else:
+        flash(message, "success" if success else "error")
+    return redirect(url_for("main.manage_cubes"))
 
 @main.route("/load_tournament/<tournament_id>", methods=["GET"])
 def load_tournament(tournament_id):
@@ -415,6 +464,16 @@ def validate_player_name(name):
         return False
     return True
 
+def normalize_player_name_for_compare(name):
+    """Normalisiert Spielername für robuste Duplikaterkennung (Case/Diakritika/Whitespace)."""
+    if not isinstance(name, str):
+        return ""
+    compact = " ".join(name.strip().split())
+    without_diacritics = "".join(
+        ch for ch in unicodedata.normalize("NFD", compact) if unicodedata.category(ch) != "Mn"
+    )
+    return without_diacritics.casefold()
+
 def _validate_players_list(raw_players):
     """Validiert und normalisiert eine Spielerliste."""
     if not isinstance(raw_players, list):
@@ -437,7 +496,7 @@ def _validate_players_list(raw_players):
     seen_players = {}
     duplicate_players = set()
     for player in players:
-        key = player.casefold()
+        key = normalize_player_name_for_compare(player)
         if key in seen_players:
             duplicate_players.add(seen_players[key])
             duplicate_players.add(player)
