@@ -1,25 +1,24 @@
 # MTG League Manager
 
-Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnieren mit flexiblen Tischgrössen, automatischer Spielerpaarung und Turnierstatistiken.
+Flask-Webapp zur Verwaltung von MTG-Draftturnieren mit Multi-Table-Builder, Gruppen/Cubes, Vintage-only Power Nine und SQL-Datenbankpersistenz.
 
 ## Features
 
-- **Flexible Turnierverwaltung**: Unterstützung für verschiedene Tischgrössen (6, 8, 10, 12 Spieler)
-- **Automatische Spielerpaarungen**: Intelligente Algorithmen für faire Paarungen
-- **Spieler-Tracking**: Verfolge Spieler über mehrere Runden
-- **Umfassende Statistiken**: Match-Gewinne, Game-Punkte, Tiebreaker und mehr
-- **Responsive Design**: Funktioniert auf Desktop und mobilen Geräten
-- **Dropout-Behandlung**: Markiere Spieler als Dropouts mit 🦵-Symbol
-- **Turnierleaderboard**: Übersichtliche Darstellung mit farbcodierten Tischgrössen
-- **Multiple Tische gleicher Größe**: Separate Leaderboards für mehrere Tische mit gleicher Spieleranzahl (z.B. zwei 6er-Tische)
-- **Turnierarchiv**: Vergangene Turniere und deren Ergebnisse werden angezeigt
+- Single-Page Table Builder mit mehreren Tischen pro Start
+- Tischgrößen 6/8/10/12, ungerade Spielerzahl mit BYE in Runde 1
+- Gruppen- und Cube-Verwaltung über eigene Management-Seiten
+- Turnier-Switcher in der Rundenansicht für parallele Turniere
+- Spielerstatistiken mit Group-/Cube-Filtern
+- Power Nine nur für Vintage-Turniere (UI + Statistik)
+- Turnierarchiv mit Endstand und Metadaten
 
 ## Installation
 
 ### Voraussetzungen
 
-- Python 3.8 oder höher
-- pip (Python-Paketmanager)
+- Python 3.10+
+- pip
+- PostgreSQL 14+ (empfohlen)
 
 ### Setup
 
@@ -29,13 +28,13 @@ Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnier
    cd MTG-Draft-App
    ```
 
-2. Virtuelle Umgebung erstellen und aktivieren:
+2. Virtuelle Umgebung erstellen/aktivieren:
    ```
    python -m venv venv
-   
+
    # Windows
    venv\Scripts\activate
-   
+
    # Linux/macOS
    source venv/bin/activate
    ```
@@ -45,95 +44,83 @@ Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnier
    pip install -r requirements.txt
    ```
 
-4. Umgebungsvariablen einrichten:
-   - Kopiere `.env.example` zu `.env`
-   - Passe die Werte in `.env` an (z.B. `SECRET_KEY`, `DATABASE_URL`)
+4. PostgreSQL-Datenbank erstellen:
+   ```sql
+   CREATE DATABASE mtg_draft_app;
+   ```
 
-5. Datenbank-Migrationen ausführen:
+5. `.env` anlegen:
+   ```
+   FLASK_SECRET_KEY=<zufaelliger-langer-key>
+   DATABASE_URL=postgresql+psycopg://postgres:<passwort>@localhost:5432/mtg_draft_app
+   ```
+
+6. Migrationen anwenden:
    ```
    flask --app run.py db upgrade
    ```
 
 ## Verwendung
 
-### Anwendung starten
+### App starten
 
-1. Lokaler Entwicklungsserver:
-   ```
-   python run.py
-   ```
-   Die Anwendung ist dann unter http://localhost:5000 verfügbar.
+```
+python run.py
+```
 
-2. Produktionsserver (mit Gunicorn):
-   ```
-   gunicorn -c gunicorn_config.py wsgi:app
-   ```
+Danach unter `http://127.0.0.1:5000`.
 
-### Turnier erstellen
+### Optional: lokal ohne PostgreSQL (SQLite)
 
-1. Gib Spielernamen ein (einen pro Zeile)
-2. Wähle unterstützte Tischgrössen (6, 8, 10, 12)
-3. Starte das Turnier mit "Turnier starten"
+PowerShell:
+```
+$env:DATABASE_URL="sqlite:///mtg_local.db"
+python run.py
+```
 
-### Ergebnisse eintragen
+## Datenbank
 
-1. Nach jeder Paarung können Ergebnisse eingetragen werden
-2. Spieler können als Dropouts markiert werden
-3. Nach Abschluss einer Runde kann die nächste Runde gestartet werden
+Die App nutzt SQLAlchemy + Flask-Migrate.
 
-### Turnier beenden
+- Schemaänderungen:
+  - `flask --app run.py db migrate -m "..."`  
+  - `flask --app run.py db upgrade`
+- Primärziel ist PostgreSQL über `DATABASE_URL`.
+- Legacy-Dateien in `data/`, `tournament_data/`, `tournament_results/` können lokal noch als Fallback/Archiv bestehen.
 
-Nach Abschluss des Turniers kann ein Endstand mit Leaderboards für alle Tischgrössen angezeigt werden.
-Abgeschlossene Turniere können erneut angesehen werden, ohne dass Änderungen vorgenommen werden können.
+### DB-Inhalt prüfen
 
-## Datenspeicherung
+Mit `psql`:
+```bash
+psql -h localhost -U postgres -d mtg_draft_app
+\dt
+SELECT * FROM tournaments LIMIT 20;
+```
 
-Die Anwendung verwendet primär eine SQL-Datenbank (SQLAlchemy + Flask-Migrate):
-
-- `DATABASE_URL` steuert die Ziel-DB (z. B. PostgreSQL).
-- Mit `flask --app run.py db migrate` und `flask --app run.py db upgrade` werden Schemaänderungen versioniert und angewendet.
-- Legacy-Dateien in `data/`, `tournament_data/` und `tournament_results/` können noch für Fallback/Archiv vorhanden sein, die aktive Persistenz ist jedoch DB-basiert.
-
-## Technologie-Stack
-
-- **Backend**: Flask (Python)
-- **Frontend**: HTML, CSS, JavaScript
-- **Datenbank**: PostgreSQL/SQLite via SQLAlchemy
-- **Deployment**: Unterstützung für Render.com (über render.yaml)
-
-## Entwicklung
-
-### Projektstruktur
+## Projektstruktur
 
 ```
 MTG-Draft-App/
 ├── app/
-│   ├── __init__.py     # Flask App-Initialisierung
-│   ├── db.py           # SQLAlchemy + Flask-Migrate Instanzen
-│   ├── models.py       # Datenmodelle
-│   ├── routes.py       # Routen und Hauptlogik
-│   ├── services/       # DB-nahe Service-Schicht
-│   └── templates/      # HTML-Templates
-├── migrations/         # Alembic-Migrationen
-├── instance/           # Instanz-spezifische Daten (gitignore)
-├── venv/               # Virtuelle Umgebung (gitignore)
-├── .env.example        # Beispiel für Umgebungsvariablen
-├── .gitignore          # Ignorierte Dateien
-├── requirements.txt    # Python-Abhängigkeiten
-├── run.py              # Entwicklungsserver
-└── wsgi.py             # WSGI-Einstiegspunkt
+│   ├── __init__.py
+│   ├── db.py
+│   ├── models.py
+│   ├── routes.py
+│   ├── services/
+│   └── templates/
+├── migrations/
+├── .env.example
+├── requirements.txt
+├── run.py
+└── wsgi.py
 ```
 
-### Sicherheit
+## Sicherheit
 
-- Secret Keys werden sicher über Umgebungsvariablen oder .env-Dateien verwaltet
-- Sensible Dateien werden über .gitignore vom Repository ausgeschlossen
-- Produktionsbereitstellungen sollten HTTPS verwenden
-
-## Beitragende
-
-- @ruefeenr - Hauptentwickler
+- `FLASK_SECRET_KEY` geheim halten, nie committen
+- `.env` bleibt lokal und ist per `.gitignore` ausgeschlossen
+- Produktionsumgebung über echte Env-Variablen konfigurieren
 
 ## Lizenz
 
-Dieses Projekt steht unter der MIT-Lizenz - siehe die LICENSE-Datei für Details. 
+MIT-Lizenz, siehe `LICENSE`.
