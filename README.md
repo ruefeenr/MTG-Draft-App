@@ -47,7 +47,12 @@ Eine Flask-basierte Webanwendung zur Verwaltung von Magic: The Gathering Turnier
 
 4. Umgebungsvariablen einrichten:
    - Kopiere `.env.example` zu `.env`
-   - Passe die Werte in `.env` an (z.B. setze einen sicheren Secret Key)
+   - Passe die Werte in `.env` an (z.B. `SECRET_KEY`, `DATABASE_URL`)
+
+5. Datenbank-Migrationen ausführen:
+   ```
+   flask --app run.py db upgrade
+   ```
 
 ## Verwendung
 
@@ -83,24 +88,17 @@ Abgeschlossene Turniere können erneut angesehen werden, ohne dass Änderungen v
 
 ## Datenspeicherung
 
-Die Anwendung verwendet eine dateibasierte Speicherung für alle Turnierdaten:
+Die Anwendung verwendet primär eine SQL-Datenbank (SQLAlchemy + Flask-Migrate):
 
-- **data/{tournament_id}/**: Verzeichnis für jedes Turnier
-  - **player_groups.json**: Speichert die Zuordnung von Spielern zu Tischgrößen
-  - **rounds/**: Enthält Rundeninformationen
-    - **round_{n}.csv**: Eine CSV-Datei pro Runde mit den Paarungen und Ergebnissen
-  
-- **tournament_data/**: Globales Verzeichnis für Turnierergebnisse
-  - **results.csv**: Kumulierte Ergebnisse aller Turniere und Runden
-
-- **tournament_results/**: Archiv abgeschlossener Turniere
-  - **{tournament_id}_results.json**: Turnierdaten und finales Leaderboard
+- `DATABASE_URL` steuert die Ziel-DB (z. B. PostgreSQL).
+- Mit `flask --app run.py db migrate` und `flask --app run.py db upgrade` werden Schemaänderungen versioniert und angewendet.
+- Legacy-Dateien in `data/`, `tournament_data/` und `tournament_results/` können noch für Fallback/Archiv vorhanden sein, die aktive Persistenz ist jedoch DB-basiert.
 
 ## Technologie-Stack
 
 - **Backend**: Flask (Python)
 - **Frontend**: HTML, CSS, JavaScript
-- **Datenbank**: Dateibasierte Speicherung (CSV, JSON)
+- **Datenbank**: PostgreSQL/SQLite via SQLAlchemy
 - **Deployment**: Unterstützung für Render.com (über render.yaml)
 
 ## Entwicklung
@@ -111,15 +109,12 @@ Die Anwendung verwendet eine dateibasierte Speicherung für alle Turnierdaten:
 MTG-Draft-App/
 ├── app/
 │   ├── __init__.py     # Flask App-Initialisierung
+│   ├── db.py           # SQLAlchemy + Flask-Migrate Instanzen
+│   ├── models.py       # Datenmodelle
 │   ├── routes.py       # Routen und Hauptlogik
+│   ├── services/       # DB-nahe Service-Schicht
 │   └── templates/      # HTML-Templates
-├── data/               # Turnierdaten (gitignore)
-│   └── {tournament_id}/# Verzeichnisstruktur pro Turnier
-│       ├── player_groups.json # Spielergruppenzuordnung
-│       └── rounds/     # Rundeninformationen
-├── tournament_data/    # Globale Ergebnisdaten
-├── tournament_results/ # Abgeschlossene Turniere
-├── config/             # Konfigurationsdateien
+├── migrations/         # Alembic-Migrationen
 ├── instance/           # Instanz-spezifische Daten (gitignore)
 ├── venv/               # Virtuelle Umgebung (gitignore)
 ├── .env.example        # Beispiel für Umgebungsvariablen

@@ -6,6 +6,9 @@ import csv
 from datetime import datetime
 from collections import defaultdict
 import json
+from .services.players import get_or_create_player, list_player_names
+from .models import Match, Player, PlayerPowerNine, Round, Tournament
+from .db import db
 import unicodedata
 from .tournament_groups import (
     DEFAULT_GROUP_ID,
@@ -280,7 +283,9 @@ def render_index_page(
 
     tournament_groups = load_tournament_groups()
     allowed_cubes = load_allowed_cubes()
-    known_player_names = sorted(get_all_players(), key=lambda name: name.casefold())
+    known_from_files = set(get_all_players())
+    known_from_db = set(list_player_names())
+    known_player_names = sorted(known_from_files.union(known_from_db), key=lambda name: name.casefold())
     allowed_cube_ids = {cube["id"] for cube in allowed_cubes}
     valid_group_ids = {group["id"] for group in tournament_groups}
     if selected_group_id not in valid_group_ids:
@@ -516,6 +521,8 @@ def _create_started_tournament(players, table_size, group_id, cube_id, set_sessi
     """
     tournament_id = str(uuid.uuid4())
     set_tournament_group(tournament_id, group_id, cube_id)
+    for player in players:
+        get_or_create_player(player)
 
     data_dir = os.path.join("data", tournament_id)
     os.makedirs(data_dir, exist_ok=True)
@@ -585,6 +592,8 @@ def _create_started_tournament(players, table_size, group_id, cube_id, set_sessi
         writer.writeheader()
         writer.writerows(match_list)
 
+    _sync_round_to_db(tournament_id, 1, match_list)
+
     if set_session_state:
         session["tournament_id"] = tournament_id
         session["leg_players_set"] = []
@@ -596,6 +605,63 @@ def _create_started_tournament(players, table_size, group_id, cube_id, set_sessi
         "player_groups": player_groups,
         "player_count": len(players),
     }
+
+
+def _sync_round_to_db(tournament_id, round_number, match_list):
+    """Spiegelt eine komplette Runde aus Match-Dicts in die DB."""
+    tournament = Tournament.query.get(tournament_id)
+    if tournament is None:
+        return
+
+    round_row = Round.query.filter_by(tournament_id=tournament_id, number=round_number).first()
+    if round_row is None:
+        round_row = Round(tournament_id=tournament_id, number=round_number)
+        db.session.add(round_row)
+        db.session.flush()
+    else:
+        Match.query.filter_by(round_id=round_row.id).delete()
+
+    for match in match_list:
+        player1_name = (match.get("player1") or "").strip()
+        player2_name = (match.get("player2") or "").strip()
+        p1 = get_or_create_player(player1_name) if player1_name else None
+        p2 = get_or_create_player(player2_name) if player2_name and player2_name != "BYE" else None
+        if p1 is None:
+            continue
+        db.session.add(
+            Match(
+                round_id=round_row.id,
+                table_number=int(match.get("table", 0) or 0),
+                table_size=int(match.get("table_size", 0) or 0),
+                group_key=(match.get("group_key") or ""),
+                player1_id=p1.id,
+                player2_id=p2.id if p2 else None,
+                is_bye=(player2_name == "BYE"),
+                score1=int(match["score1"]) if str(match.get("score1", "")).strip() != "" else None,
+                score2=int(match["score2"]) if str(match.get("score2", "")).strip() != "" else None,
+                score_draws=int(match["score_draws"]) if str(match.get("score_draws", "")).strip() != "" else None,
+                dropout1=str(match.get("dropout1", "false")).lower() == "true",
+                dropout2=str(match.get("dropout2", "false")).lower() == "true",
+            )
+        )
+
+    tournament.current_round = max(tournament.current_round or 1, int(round_number))
+    db.session.commit()
+
+
+def _update_match_result_in_db(tournament_id, round_number, table_number, score1, score2, score_draws, dropout1, dropout2):
+    round_row = Round.query.filter_by(tournament_id=tournament_id, number=round_number).first()
+    if round_row is None:
+        return
+    match = Match.query.filter_by(round_id=round_row.id, table_number=table_number).first()
+    if match is None:
+        return
+    match.score1 = score1
+    match.score2 = score2
+    match.score_draws = score_draws
+    match.dropout1 = dropout1
+    match.dropout2 = dropout2
+    db.session.commit()
 
 def _extract_table_builder_payload():
     raw_payload = (request.form.get("tables_payload") or "").strip()
@@ -758,6 +824,8 @@ def pair():
         session["leg_players_set"] = []
         session["tournament_ended"] = False
         set_tournament_group(tournament_id, selected_group_id, selected_cube)
+        for player in players:
+            get_or_create_player(player)
         data_dir = os.path.join("data", tournament_id)
         os.makedirs(data_dir, exist_ok=True)
         
@@ -837,6 +905,7 @@ def pair():
             writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'table_size', 'group_key'])
             writer.writeheader()
             writer.writerows(match_list)
+        _sync_round_to_db(tournament_id, current_round, match_list)
         
         # Leite zur show_round Route weiter
         return redirect(url_for('main.show_round', round_number=current_round))
@@ -1088,6 +1157,19 @@ def save_results():
     
     # Zurück zur Rundenansicht (für nicht-Ajax Anfragen als Fallback)
     print(f"Ergebnis erfolgreich gespeichert, JSON-Antwort wird gesendet")
+    try:
+        _update_match_result_in_db(
+            tournament_id=tournament_id,
+            round_number=int(current_round),
+            table_number=int(table),
+            score1=int(score1),
+            score2=int(score2),
+            score_draws=int(score_draws),
+            dropout1=dropout1,
+            dropout2=dropout2,
+        )
+    except Exception:
+        pass
     return jsonify(response_data)
 
 def get_player_opponents(tournament_id, current_round):
@@ -1403,6 +1485,7 @@ def next_round():
         writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'table_size', 'group_key'])
         writer.writeheader()
         writer.writerows(match_list)
+    _sync_round_to_db(tournament_id, next_round_number, match_list)
 
     # Speichere die BYE Matches in der results.csv
     results_file = os.path.join("tournament_data", "results.csv")
@@ -1567,6 +1650,11 @@ def end_tournament():
     # Speichere den Status des Turniers in der Session
     # Entferne nicht die tournament_id, damit der Benutzer zurückkehren kann
     session["tournament_ended"] = True
+    tournament_row = Tournament.query.get(tournament_id)
+    if tournament_row:
+        tournament_row.status = "ended"
+        tournament_row.ended_at = datetime.utcnow()
+        db.session.commit()
     
     # Erstelle eine end_time.txt-Datei im Turnierverzeichnis für konsistente Endstatus-Prüfung
     end_time_file = os.path.join(data_dir, "end_time.txt")
@@ -2182,28 +2270,31 @@ def update_tournament_power_nine(tournament_id, player_name, power_nine_data):
     if not is_vintage_tournament(tournament_id):
         return True
     try:
-        data_dir = os.path.join("data", tournament_id)
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir, exist_ok=True)
-        
-        # Dateiname für die Power Nine Daten des Turniers
-        power_nine_file = os.path.join(data_dir, "tournament_power_nine.json")
-        
-        # Lade die bestehenden Daten oder erstelle ein neues Dictionary
-        tournament_power_nine = {}
-        if os.path.exists(power_nine_file):
-            with open(power_nine_file, 'r', encoding='utf-8') as f:
-                tournament_power_nine = json.load(f)
-        
-        # Aktualisiere die Daten für den Spieler
-        tournament_power_nine[player_name] = power_nine_data
-        
-        # Speichere die Daten zurück in die Datei
-        with open(power_nine_file, 'w', encoding='utf-8') as f:
-            json.dump(tournament_power_nine, f, indent=2)
-        
+        player = get_or_create_player(player_name)
+        if player is None:
+            return False
+        existing_rows = PlayerPowerNine.query.filter_by(
+            tournament_id=tournament_id,
+            player_id=player.id,
+        ).all()
+        by_card = {row.card_name: row for row in existing_rows}
+        for card_name, has_card in (power_nine_data or {}).items():
+            row = by_card.get(card_name)
+            if row is None:
+                db.session.add(
+                    PlayerPowerNine(
+                        tournament_id=tournament_id,
+                        player_id=player.id,
+                        card_name=card_name,
+                        has_card=bool(has_card),
+                    )
+                )
+            else:
+                row.has_card = bool(has_card)
+        db.session.commit()
         return True
     except Exception as e:
+        db.session.rollback()
         print(f"Fehler beim Aktualisieren der Power Nine Daten für Turnier {tournament_id}, Spieler {player_name}: {e}")
         return False
 
@@ -2214,15 +2305,16 @@ def get_tournament_power_nine(tournament_id):
     if not is_vintage_tournament(tournament_id):
         return {}
     try:
-        data_dir = os.path.join("data", tournament_id)
-        power_nine_file = os.path.join(data_dir, "tournament_power_nine.json")
-        
-        if os.path.exists(power_nine_file):
-            with open(power_nine_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        
-        # Wenn keine Datei existiert, gib ein leeres Dictionary zurück
-        return {}
+        rows = (
+            db.session.query(PlayerPowerNine, Player)
+            .join(Player, PlayerPowerNine.player_id == Player.id)
+            .filter(PlayerPowerNine.tournament_id == tournament_id)
+            .all()
+        )
+        payload = {}
+        for row, player in rows:
+            payload.setdefault(player.name, {})[row.card_name] = bool(row.has_card)
+        return payload
     except Exception as e:
         print(f"Fehler beim Laden der Power Nine Daten für Turnier {tournament_id}: {e}")
         return {}
@@ -2252,9 +2344,11 @@ def check_tournament_status(tournament_id):
     file_tournament_ended = os.path.exists(end_time_file)
     results_file = os.path.join("tournament_results", f"{tournament_id}_results.json")
     archived_tournament_ended = os.path.exists(results_file)
+    db_row = Tournament.query.get(tournament_id)
+    db_tournament_ended = bool(db_row and db_row.status == "ended")
     
     # Session-Status darf nur für das AKTUELLE Turnier gelten, sonst entstehen False-Positives.
-    tournament_ended = file_tournament_ended or archived_tournament_ended
+    tournament_ended = file_tournament_ended or archived_tournament_ended or db_tournament_ended
 
     if session.get("tournament_id") == tournament_id:
         session["tournament_ended"] = tournament_ended

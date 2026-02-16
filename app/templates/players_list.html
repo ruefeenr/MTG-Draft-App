@@ -182,7 +182,7 @@
     <div class="header">
         <h1>Spielerliste</h1>
         <div class="page-description">
-            Übersicht aller Spieler mit ihren Statistiken und Power Nine Karten.
+            Übersicht aller Spieler mit ihren Statistiken.
         </div>
         <form method="GET" action="{{ url_for('main.players_list') }}" style="display:flex; gap:10px; justify-content:center; align-items:center; flex-wrap:wrap;">
             <label for="scope" style="font-weight:600;">Statistik-Scope:</label>
@@ -195,6 +195,12 @@
                     <option value="{{ group.id }}" {% if group.id == selected_group_id %}selected{% endif %}>{{ group.name }}</option>
                 {% endfor %}
             </select>
+            <label for="cube" style="font-weight:600;">Cube:</label>
+            <select id="cube" name="cube" onchange="this.form.submit()" style="padding:8px 10px; border:1px solid #d7e2ef; border-radius:8px;">
+                {% for cube in cube_filter_options %}
+                    <option value="{{ cube.id }}" {% if cube.id == selected_cube_id %}selected{% endif %}>{{ cube.name }}</option>
+                {% endfor %}
+            </select>
             <noscript><button type="submit" class="back-button" style="padding:8px 14px;">Anwenden</button></noscript>
         </form>
     </div>
@@ -202,7 +208,7 @@
     <div class="player-list">
         {% for player_name, player_data in players.items() %}
             <div class="player-card">
-                {% if player_data.power_nine_count > 0 %}
+                {% if show_power_nine_stats and player_data.power_nine_count > 0 %}
                     <div class="power-nine-badge">
                         {{ player_data.power_nine_count }} Power Nine
                     </div>
@@ -226,7 +232,7 @@
                     </div>
                 </div>
                 
-                <a href="{{ url_for('main.player_profile', player_name=player_name, scope=stats_scope, group_id=selected_group_id) }}" class="view-profile-btn">
+                <a href="{{ url_for('main.player_profile', player_name=player_name, scope=stats_scope, group_id=selected_group_id, cube=selected_cube_id) }}" class="view-profile-btn">
                     Profil ansehen
                 </a>
             </div>

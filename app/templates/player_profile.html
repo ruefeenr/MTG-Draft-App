@@ -416,7 +416,7 @@
 <body>
     <div class="navigation">
         <div class="nav-buttons">
-            <a href="{{ url_for('main.players_list', scope=stats_scope, group_id=selected_group_id) }}" class="nav-button">← Zurück zur Spielerliste</a>
+            <a href="{{ url_for('main.players_list', scope=stats_scope, group_id=selected_group_id, cube=selected_cube_id) }}" class="nav-button">← Zurück zur Spielerliste</a>
             <a href="{{ url_for('main.index') }}" class="nav-button">Zur Startseite</a>
         </div>
         <div class="delete-button" onclick="showDeleteConfirmation('{{ player_name }}')">✖</div>
@@ -435,11 +435,17 @@
                     <option value="{{ group.id }}" {% if group.id == selected_group_id %}selected{% endif %}>{{ group.name }}</option>
                 {% endfor %}
             </select>
+            <label for="cube" style="font-weight:600;">Cube:</label>
+            <select id="cube" name="cube" onchange="this.form.submit()" style="padding:8px 10px; border:1px solid #d7e2ef; border-radius:8px;">
+                {% for cube in cube_filter_options %}
+                    <option value="{{ cube.id }}" {% if cube.id == selected_cube_id %}selected{% endif %}>{{ cube.name }}</option>
+                {% endfor %}
+            </select>
             <noscript><button type="submit" class="nav-button" style="border:none; cursor:pointer;">Anwenden</button></noscript>
         </form>
         
         <div class="player-summary">
-            {% if player_stats.power_nine_total > 0 %}
+            {% if show_power_nine_stats and player_stats.power_nine_total > 0 %}
             <div class="badge-container">
                 <div class="power-nine-badge">
                     <div class="badge-icon">🏆</div>
@@ -465,7 +471,7 @@
                     </div>
                 </div>
             </div>
-            {% else %}
+            {% elif show_power_nine_stats %}
             <div class="badge-container">
                 <div class="power-nine-badge empty">
                     <div class="badge-icon">🎴</div>
@@ -482,6 +488,24 @@
                     </div>
                 </div>
                 
+                <div class="power-nine-badge">
+                    <div class="badge-icon">🎮</div>
+                    <div class="badge-content">
+                        <div class="badge-value">{{ player_stats.tournaments_played }}</div>
+                        <div class="badge-label">Turniere</div>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="badge-container">
+                <div class="power-nine-badge">
+                    <div class="badge-icon">🏅</div>
+                    <div class="badge-content">
+                        <div class="badge-value">{{ player_stats.match_win_percentage }}%</div>
+                        <div class="badge-label">Gewinnrate</div>
+                    </div>
+                </div>
+
                 <div class="power-nine-badge">
                     <div class="badge-icon">🎮</div>
                     <div class="badge-content">
@@ -551,6 +575,7 @@
             </div>
         </div>
 
+        {% if show_power_nine_stats %}
         <div class="stats-card">
             <div class="card-title">Power Nine Statistik</div>
             
@@ -571,7 +596,8 @@
                 <h3 style="margin-top: 20px; color: #2c3e50; font-size: 1.2em; text-align: center;">Power Nine Sammlung</h3>
                 <div class="power-nine-cards" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 15px;">
                     {% for card_name in power_nine %}
-                        {% set has_card = player_data.power_nine[card_name] %}
+                        {% set card_count = player_stats.power_nine_counts.get(card_name, 0) %}
+                        {% set has_card = card_count > 0 %}
                         {% set card_emoji = {
                             "Black Lotus": "🌸",
                             "Ancestral Recall": "🌊",
@@ -594,7 +620,7 @@
                             position: relative;
                         ">
                             {% if has_card %}
-                            <div style="position: absolute; top: 5px; right: 8px; font-size: 0.8em; font-weight: bold; color: #4a90e2; background: rgba(255,255,255,0.8); border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;">{{ player_stats.power_nine_counts[card_name] }}</div>
+                            <div style="position: absolute; top: 5px; right: 8px; font-size: 0.8em; font-weight: bold; color: #4a90e2; background: rgba(255,255,255,0.8); border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;">{{ card_count }}</div>
                             {% endif %}
                             <div style="font-size: 2em; margin-bottom: 10px;">{{ card_emoji[card_name] }}</div>
                             <div style="font-weight: {{ '600' if has_card else '400' }}; color: {{ '#2c3e50' if has_card else '#666' }};">
@@ -610,6 +636,7 @@
                 Hier siehst du eine Zusammenfassung aller Karten, die du in bisherigen Turnieren erhalten hast.</p>
             </div>
         </div>
+        {% endif %}
     </div>
     
     <!-- Bestätigungsdialog -->
