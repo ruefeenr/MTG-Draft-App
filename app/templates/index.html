@@ -565,6 +565,60 @@
             transform: none;
             box-shadow: none;
         }
+
+        .table-builder-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .table-config-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            align-items: end;
+        }
+
+        .table-size-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .table-size-btn {
+            padding: 10px 18px;
+            background: white;
+            border: 2px solid rgba(74, 144, 226, 0.2);
+            border-radius: 8px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.25s ease;
+            font-weight: 600;
+            color: var(--dark-color);
+        }
+
+        .table-size-btn::before {
+            content: "🎮 ";
+        }
+
+        .table-size-btn.active {
+            background: linear-gradient(135deg, var(--primary-color) 0%, #357abd 100%);
+            color: white;
+            border-color: transparent;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(74, 144, 226, 0.2);
+        }
+
+        .builder-select {
+            padding: 8px 10px;
+            border: 1px solid #d7e2ef;
+            border-radius: 8px;
+            min-width: 200px;
+            background: white;
+        }
         
         @media (max-width: 768px) {
             .section-header {
@@ -676,79 +730,27 @@
 
         <div class="navigation-buttons" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <a href="{{ url_for('main.players_list') }}" style="display: inline-block; padding: 10px 20px; background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white; text-decoration: none; border-radius: 6px; font-weight: 500;">Spielerstatistiken</a>
-            
-            <button type="button" class="add-test-players-btn" onclick="addTestPlayers()" style="display: inline-block; padding: 10px 20px; background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">🏆 Grotto-Gang hinzufügen</button>
         </div>
 
         {% if error %}
         <div class="error-message">{{ error }}</div>
         {% endif %}
 
-        <form method="POST" action="{{ url_for('main.pair') }}">
-            <div class="setup-section">
-                <div class="section-header">
-                    <h2>Tischgrössen auswählen</h2>
-                    <button type="submit" id="startButton" class="start-button" disabled>🎲 Turnier starten</button>
-                </div>
-                <div style="margin-bottom: 12px;">
-                    <label for="tournament_group" style="display:block; font-weight:600; margin-bottom:6px;">Turniergruppe</label>
-                    <select id="tournament_group" name="tournament_group" style="width:100%; max-width:320px; padding:10px; border:1px solid #d7e2ef; border-radius:8px;">
-                        {% for group in tournament_groups %}
-                            <option value="{{ group.id }}" {% if group.id == selected_group_id %}selected{% endif %}>
-                                {{ group.name }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="group-sizes">
-                    <input type="checkbox" id="size6" name="group_sizes" value="6" class="size-checkbox">
-                    <label for="size6" class="size-label">6 Spieler</label>
-                    
-                    <input type="checkbox" id="size8" name="group_sizes" value="8" class="size-checkbox">
-                    <label for="size8" class="size-label">8 Spieler</label>
-                    
-                    <input type="checkbox" id="size10" name="group_sizes" value="10" class="size-checkbox">
-                    <label for="size10" class="size-label">10 Spieler</label>
-                    
-                    <input type="checkbox" id="size12" name="group_sizes" value="12" class="size-checkbox">
-                    <label for="size12" class="size-label">12 Spieler</label>
-                </div>
-                <div class="help-text">Wähle die gewünschten Tischgrössen für dein Turnier</div>
+        <form method="POST" action="{{ url_for('main.start_tables') }}" id="tableBuilderForm">
+            <input type="hidden" name="tables_payload" id="tablesPayload">
+            <div style="margin: 4px 0 12px 0;">
+                <a href="{{ url_for('main.manage_groups') }}" style="font-size: 0.9rem; color: #1e3a8a; text-decoration: none; font-weight: 600;">Gruppen verwalten</a>
             </div>
 
-            <div class="setup-section">
-                <h2>Spieler hinzufügen</h2>
-                <div class="player-input-section">
-                    <input type="text" id="playerName" class="player-input-field" placeholder="Spielername eingeben...">
-                    <button type="button" class="add-player-btn" onclick="addPlayer()">Hinzufügen</button>
-                </div>
+            <div id="tablesContainer"></div>
 
-                <table class="players-table" id="playersTable">
-                    <thead>
-                        <tr>
-                            <th>Spieler</th>
-                            <th>Aktion</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% if players_text %}
-                            {% for player in players_text.split('\n') %}
-                                {% if player.strip() %}
-                                <tr>
-                                    <td>
-                                        <input type="hidden" name="players" value="{{ player }}">
-                                        {{ player }}
-                                    </td>
-                                    <td>
-                                        <button type="button" class="delete-btn" onclick="this.closest('tr').remove();">Entfernen</button>
-                                    </td>
-                                </tr>
-                                {% endif %}
-                            {% endfor %}
-                        {% endif %}
-                    </tbody>
-                </table>
-                <div class="player-count">Anzahl Spieler: <span id="playerCount">{{ players_text.split('\n')|length if players_text else 0 }}</span></div>
+            <div class="setup-section" style="margin-top: 8px;">
+                <div class="table-builder-actions">
+                    <button type="button" id="addTableButton" class="start-button" style="background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);">
+                        Weiteren Tisch hinzufügen
+                    </button>
+                    <button type="submit" id="startButton" class="start-button">Start</button>
+                </div>
             </div>
         </form>
 
@@ -775,7 +777,7 @@
                         <span class="tournament-winner">
                             🟢 {{ tournament.id[:8] }}{% if tournament.is_current_session %} (aktuell geladen){% endif %}
                         </span>
-                        <span class="tournament-date">Runde {{ tournament.current_round }} • {{ tournament.player_count }} Spieler • {{ tournament.group_name }}</span>
+                        <span class="tournament-date">Runde {{ tournament.current_round }} • {{ tournament.player_count }} Spieler • {{ tournament.group_name }} • Cube: {{ tournament.cube_name }}</span>
                         <a href="{{ url_for('main.load_tournament', tournament_id=tournament.id) }}" class="continue-tournament-btn">Fortsetzen</a>
                         <button type="button"
                                 class="delete-tournament-btn"
@@ -798,7 +800,7 @@
                 <div class="accordion-item" data-tournament-id="{{ tournament.id }}">
                     <div class="accordion-header" onclick="toggleAccordion(this)">
                         <span class="tournament-winner">🏆 {{ tournament.winner }}</span>
-                        <span class="tournament-date">{{ tournament.date }} • {{ tournament.group_name }}</span>
+                        <span class="tournament-date">{{ tournament.date }} • {{ tournament.group_name }} • Cube: {{ tournament.cube_name }}</span>
                         <button type="button" 
                                 class="delete-tournament-btn" 
                                 onclick='event.stopPropagation(); showDeleteConfirmation({{ tournament.id|tojson }}, {{ tournament.winner|tojson }})'>
@@ -868,75 +870,182 @@
     </div>
 
     <script>
-        function addPlayer() {
-            const playerName = document.getElementById('playerName').value.trim();
+        const GROUP_OPTIONS = {{ tournament_groups | tojson }};
+        const CUBE_OPTIONS = {{ allowed_cubes | tojson }};
+        const DEFAULT_GROUP_ID = {{ selected_group_id | tojson }};
+        const DEFAULT_CUBE_ID = {{ selected_cube | tojson }};
+        const TABLE_SIZE_OPTIONS = [6, 8, 10, 12];
+
+        let tableConfigs = [
+            { table_size: 6, group_id: DEFAULT_GROUP_ID, cube_id: DEFAULT_CUBE_ID, players: [] }
+        ];
+
+        function escapeHtml(value) {
+            return String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function createOptions(options, selectedValue) {
+            return options.map((option) => {
+                const value = option.id ?? option;
+                const label = option.name ?? option;
+                const selected = String(value) === String(selectedValue) ? 'selected' : '';
+                return `<option value="${escapeHtml(value)}" ${selected}>${escapeHtml(label)}</option>`;
+            }).join('');
+        }
+
+        function setTableSize(index, size) {
+            tableConfigs[index].table_size = size;
+            renderTables();
+        }
+
+        function renderTables() {
+            const container = document.getElementById('tablesContainer');
+            container.innerHTML = tableConfigs.map((table, index) => {
+                const sizeButtons = TABLE_SIZE_OPTIONS.map((size) => `
+                    <button
+                        type="button"
+                        class="table-size-btn ${table.table_size === size ? 'active' : ''}"
+                        onclick="setTableSize(${index}, ${size})"
+                    >${size} Spieler</button>
+                `).join('');
+
+                const playersRows = table.players.map((player, playerIndex) => `
+                    <tr>
+                        <td>${escapeHtml(player)}</td>
+                        <td>
+                            <button type="button" class="delete-btn" onclick="removePlayer(${index}, ${playerIndex})">Entfernen</button>
+                        </td>
+                    </tr>
+                `).join('');
+
+                return `
+                    <div class="setup-section" style="margin-bottom: 16px;">
+                        <div class="section-header">
+                            <h2>Tisch ${index + 1}</h2>
+                            ${tableConfigs.length > 1 ? `<button type="button" class="delete-btn" onclick="removeTable(${index})">Tisch entfernen</button>` : ''}
+                        </div>
+                        <div class="table-config-row">
+                            <label style="min-width: 220px;">
+                                <div class="table-size-buttons">${sizeButtons}</div>
+                            </label>
+                            <button
+                                type="button"
+                                class="add-test-players-btn"
+                                onclick="addTestPlayers(${index})"
+                                style="display: inline-block; padding: 10px 20px; background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; margin-left: auto;"
+                            >🏆 Grotto-Gang hinzufügen</button>
+                        </div>
+                        <div class="table-config-row">
+                            <label>Cube
+                                <select class="builder-select" onchange="updateTableField(${index}, 'cube_id', this.value)">
+                                    ${createOptions(CUBE_OPTIONS, table.cube_id)}
+                                </select>
+                            </label>
+                            <label>Gruppe
+                                <select class="builder-select" onchange="updateTableField(${index}, 'group_id', this.value)">
+                                    ${createOptions(GROUP_OPTIONS, table.group_id)}
+                                </select>
+                            </label>
+                        </div>
+                        <div class="player-input-section">
+                            <input type="text" id="playerInput_${index}" class="player-input-field" placeholder="Spielername eingeben...">
+                            <button type="button" class="add-player-btn" onclick="addPlayerToTable(${index})">Hinzufügen</button>
+                        </div>
+                        <table class="players-table">
+                            <thead>
+                                <tr>
+                                    <th>Spieler</th>
+                                    <th>Aktion</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${playersRows || '<tr><td colspan="2" style="color:#6b7280;">Noch keine Spieler zugewiesen.</td></tr>'}
+                            </tbody>
+                        </table>
+                        <div class="player-count">Anzahl Spieler: ${table.players.length}/${table.table_size}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateTableField(index, field, value) {
+            tableConfigs[index][field] = value;
+            renderTables();
+        }
+
+        function addTable() {
+            tableConfigs.push({
+                table_size: 6,
+                group_id: DEFAULT_GROUP_ID,
+                cube_id: DEFAULT_CUBE_ID,
+                players: [],
+            });
+            renderTables();
+        }
+
+        function removeTable(index) {
+            tableConfigs.splice(index, 1);
+            if (!tableConfigs.length) {
+                addTable();
+                return;
+            }
+            renderTables();
+        }
+
+        function focusPlayerInput(index) {
+            const input = document.getElementById(`playerInput_${index}`);
+            if (input) {
+                input.focus();
+            }
+        }
+
+        function addPlayerToTable(index, refocusInput = false) {
+            const input = document.getElementById(`playerInput_${index}`);
+            if (!input) return;
+            const playerName = input.value.trim();
             if (!playerName) return;
-
-            const table = document.getElementById('playersTable').getElementsByTagName('tbody')[0];
-            const newRow = table.insertRow();
-            
-            const cell1 = newRow.insertCell(0);
-            const cell2 = newRow.insertCell(1);
-            
-            cell1.innerHTML = `
-                <input type="hidden" name="players" value="${playerName}">
-                ${playerName}
-            `;
-            
-            cell2.innerHTML = `
-                <button type="button" class="delete-btn" onclick="this.closest('tr').remove(); updatePlayerCount();">
-                    Entfernen
-                </button>
-            `;
-            
-            document.getElementById('playerName').value = '';
-            updatePlayerCount();
-            validateForm(); // Validierung nach Hinzufügen eines Spielers
+            if (tableConfigs.some((table) => table.players.includes(playerName))) {
+                alert(`Spieler "${playerName}" ist bereits in einem anderen Tisch.`);
+                if (refocusInput) {
+                    focusPlayerInput(index);
+                }
+                return;
+            }
+            tableConfigs[index].players.push(playerName);
+            input.value = '';
+            renderTables();
+            if (refocusInput) {
+                focusPlayerInput(index);
+            }
         }
 
-        function updatePlayerCount() {
-            const count = document.getElementsByName('players').length;
-            document.getElementById('playerCount').textContent = count;
-            validateForm(); // Validierung nach Aktualisierung der Spielerzahl
+        function removePlayer(tableIndex, playerIndex) {
+            tableConfigs[tableIndex].players.splice(playerIndex, 1);
+            renderTables();
         }
 
-        function addTestPlayers() {
+        function addTestPlayers(targetIndex) {
             const testPlayers = [
                 "Serge", "Remo", "Barney", "Tim", "Enrique", "Sandy",
                 "Fabian", "Chrigi", "Patrick", "Valentin", "Dimi", "Rico"
             ];
-            
-            const table = document.getElementById('playersTable').getElementsByTagName('tbody')[0];
-            table.innerHTML = '';
-            
-            testPlayers.forEach(player => {
-                const newRow = table.insertRow();
-                const cell1 = newRow.insertCell(0);
-                const cell2 = newRow.insertCell(1);
-                
-                cell1.innerHTML = `
-                    <input type="hidden" name="players" value="${player}">
-                    ${player}
-                `;
-                
-                cell2.innerHTML = `
-                    <button type="button" class="delete-btn" onclick="this.closest('tr').remove(); updatePlayerCount();">
-                        Entfernen
-                    </button>
-                `;
+            const resolvedIndex = Number.isInteger(targetIndex) ? targetIndex : 0;
+            const targetTable = tableConfigs[resolvedIndex] || tableConfigs[0];
+            if (!targetTable) return;
+            const existing = new Set(targetTable.players);
+            testPlayers.forEach((player) => {
+                if (!existing.has(player)) {
+                    targetTable.players.push(player);
+                    existing.add(player);
+                }
             });
-            
-            updatePlayerCount();
-            validateForm(); // Validierung nach Hinzufügen der Testgruppe
+            renderTables();
         }
-
-        // Event-Listener für Enter-Taste im Eingabefeld
-        document.getElementById('playerName').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                addPlayer();
-            }
-        });
 
         function toggleAccordion(element) {
             // Toggle aktive Klasse für das Header-Element
@@ -953,27 +1062,50 @@
             }
         }
 
-        // Funktion zum Prüfen, ob das Formular valide ist
-        function validateForm() {
-            // Prüfe, ob mindestens eine Tischgröße ausgewählt ist
-            const tableSizesSelected = Array.from(document.querySelectorAll('input[name="group_sizes"]:checked')).length > 0;
-            
-            // Prüfe, ob mindestens ein Spieler vorhanden ist
-            const playersExist = document.getElementsByName('players').length > 0;
-            
-            // Aktiviere oder deaktiviere den Button basierend auf den Bedingungen
-            const startButton = document.getElementById('startButton');
-            startButton.disabled = !(tableSizesSelected && playersExist);
+        function validateAndSerialize() {
+            const hasValidTable = tableConfigs.some((table) => table.players.length >= 2);
+            if (!hasValidTable) {
+                alert("Bitte mindestens einen Tisch mit mindestens 2 Spielern konfigurieren.");
+                return false;
+            }
+            document.getElementById('tablesPayload').value = JSON.stringify(tableConfigs);
+            return true;
         }
 
-        // Initial prüfen
+        // Initialisieren
         document.addEventListener('DOMContentLoaded', function() {
-            validateForm();
-            
-            // Nach jeder Änderung der Checkboxen prüfen
-            document.querySelectorAll('input[name="group_sizes"]').forEach(checkbox => {
-                checkbox.addEventListener('change', validateForm);
+            renderTables();
+            const addButton = document.getElementById('addTableButton');
+            if (addButton) {
+                addButton.addEventListener('click', addTable);
+            }
+            // Enter im Spieler-Input soll nur Spieler hinzufügen.
+            document.addEventListener('keydown', function(event) {
+                const target = event.target;
+                if (!target || !target.classList || !target.classList.contains('player-input-field')) {
+                    return;
+                }
+                if (event.key !== 'Enter') {
+                    return;
+                }
+                const idMatch = (target.id || '').match(/^playerInput_(\d+)$/);
+                if (!idMatch) {
+                    return;
+                }
+                event.preventDefault();
+                const tableIndex = parseInt(idMatch[1], 10);
+                if (!Number.isNaN(tableIndex)) {
+                    addPlayerToTable(tableIndex, true);
+                }
             });
+            const form = document.getElementById('tableBuilderForm');
+            if (form) {
+                form.addEventListener('submit', function(event) {
+                    if (!validateAndSerialize()) {
+                        event.preventDefault();
+                    }
+                });
+            }
         });
 
         let tournamentToDelete = null;

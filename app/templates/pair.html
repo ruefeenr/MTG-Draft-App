@@ -322,6 +322,48 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
+        .tournament-switcher {
+            margin: 10px 0 20px 0;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .tournament-switcher-label {
+            font-weight: 600;
+            color: var(--dark-color);
+            margin-right: 4px;
+        }
+
+        .tournament-switch-btn {
+            display: inline-block;
+            text-decoration: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(74, 144, 226, 0.2);
+            color: var(--dark-color);
+            background: var(--light-color);
+            font-size: 0.9em;
+            transition: all 0.2s ease;
+        }
+
+        .tournament-switch-btn.current {
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+            color: white;
+            border: none;
+            pointer-events: none;
+        }
+
+        .tournament-switch-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+        }
+
         @media (max-width: 900px) {
             .timer-section > div {
                 flex-wrap: wrap;
@@ -1029,6 +1071,8 @@
         }
     </style>
     <script>
+        const isVintageTournament = {{ 'true' if is_vintage_tournament else 'false' }};
+
         // Debug-Funktion für 🦵-Symbol Klassen
         document.addEventListener('DOMContentLoaded', function() {
             console.log("Debug: Überprüfe Klassen für 🦵-markierte Spieler");
@@ -1066,6 +1110,11 @@
         let timerInterval;
         let remainingSeconds = 0;
         let timerEndTime = 0; // Neues Feld zur Speicherung der Endzeit
+        const timerStoragePrefix = `timer:${{ tournament_id|tojson }}:`;
+
+        function getTimerStorageKey(key) {
+            return `${timerStoragePrefix}${key}`;
+        }
 
         function startTimer() {
             const minutes = parseInt(document.getElementById("timer-minutes").value) || 0;
@@ -1073,9 +1122,9 @@
             
             // Timer-Endzeit berechnen und in localStorage speichern
             timerEndTime = Date.now() + (remainingSeconds * 1000);
-            localStorage.setItem('timerEndTime', timerEndTime);
-            localStorage.setItem('timerMinutes', minutes);
-            localStorage.setItem('timerRunning', 'true');
+            localStorage.setItem(getTimerStorageKey('timerEndTime'), String(timerEndTime));
+            localStorage.setItem(getTimerStorageKey('timerMinutes'), String(minutes));
+            localStorage.setItem(getTimerStorageKey('timerRunning'), 'true');
             
             updateTimerDisplay();
             clearInterval(timerInterval);
@@ -1093,7 +1142,7 @@
                     // Füge die time-up Klasse zum Timer-Bereich hinzu
                     document.querySelector('.timer-section').classList.add('time-up');
                     document.getElementById('timer-display').classList.add('time-up');
-                    localStorage.setItem('timerRunning', 'false');
+                    localStorage.setItem(getTimerStorageKey('timerRunning'), 'false');
                     return;
                 }
                 updateTimerDisplay();
@@ -1106,9 +1155,9 @@
             timerEndTime = 0;
             
             // Timer-Daten aus dem localStorage entfernen
-            localStorage.removeItem('timerEndTime');
-            localStorage.removeItem('timerMinutes');
-            localStorage.removeItem('timerRunning');
+            localStorage.removeItem(getTimerStorageKey('timerEndTime'));
+            localStorage.removeItem(getTimerStorageKey('timerMinutes'));
+            localStorage.removeItem(getTimerStorageKey('timerRunning'));
             
             updateTimerDisplay(true);
             // Entferne die time-up Klasse vom Timer-Bereich
@@ -1132,8 +1181,8 @@
             // ... existing code ...
             
             // Timer wiederherstellen, wenn er läuft
-            if (localStorage.getItem('timerRunning') === 'true') {
-                const storedEndTime = localStorage.getItem('timerEndTime');
+            if (localStorage.getItem(getTimerStorageKey('timerRunning')) === 'true') {
+                const storedEndTime = localStorage.getItem(getTimerStorageKey('timerEndTime'));
                 if (storedEndTime) {
                     timerEndTime = parseInt(storedEndTime);
                     const remainingTime = Math.max(0, Math.floor((timerEndTime - Date.now()) / 1000));
@@ -1142,7 +1191,7 @@
                         // Timer läuft noch, also starten wir ihn wieder
                         remainingSeconds = remainingTime;
                         // Setze die Minuten auf den gespeicherten Wert
-                        const storedMinutes = localStorage.getItem('timerMinutes');
+                        const storedMinutes = localStorage.getItem(getTimerStorageKey('timerMinutes'));
                         if (storedMinutes) {
                             document.getElementById("timer-minutes").value = storedMinutes;
                         }
@@ -1154,7 +1203,7 @@
                                 clearInterval(timerInterval);
                                 document.querySelector('.timer-section').classList.add('time-up');
                                 document.getElementById('timer-display').classList.add('time-up');
-                                localStorage.setItem('timerRunning', 'false');
+                                localStorage.setItem(getTimerStorageKey('timerRunning'), 'false');
                                 return;
                             }
                             updateTimerDisplay();
@@ -1164,7 +1213,7 @@
                         document.querySelector('.timer-section').classList.add('time-up');
                         document.getElementById('timer-display').classList.add('time-up');
                         updateTimerDisplay();
-                        localStorage.setItem('timerRunning', 'false');
+                        localStorage.setItem(getTimerStorageKey('timerRunning'), 'false');
                     }
                 }
             }
@@ -1272,26 +1321,38 @@
             document.getElementById('modalDropout1').value = dropout1 || 'false';
             document.getElementById('modalDropout2').value = dropout2 || 'false';
             
-            // Power Nine Bereich zurücksetzen und verstecken
-            document.getElementById('powerNineSection').style.display = 'none';
-            document.getElementById('player1PowerNine').value = '{}';
-            document.getElementById('player2PowerNine').value = '{}';
-            
-            // Spielernamen im Dropdown aktualisieren
-            const selectElement = document.getElementById('powerNinePlayerSelect');
-            const player1Option = selectElement.options[0];
-            const player2Option = selectElement.options[1];
-            
-            player1Option.text = cleanPlayerName(display1 || player1);
-            player2Option.text = cleanPlayerName(display2 || player2);
-            
-            // Für Spieler 2, prüfe ob es ein BYE ist
-            if (player2 === "BYE") {
-                player2Option.disabled = true;
-                player2Option.text = "BYE";
-            } else {
-                player2Option.disabled = false;
-                player2Option.text = cleanPlayerName(display2 || player2);
+            if (isVintageTournament) {
+                // Power Nine Bereich zurücksetzen und verstecken
+                const powerNineSection = document.getElementById('powerNineSection');
+                const player1PowerNineInput = document.getElementById('player1PowerNine');
+                const player2PowerNineInput = document.getElementById('player2PowerNine');
+                if (powerNineSection) {
+                    powerNineSection.style.display = 'none';
+                }
+                if (player1PowerNineInput) {
+                    player1PowerNineInput.value = '{}';
+                }
+                if (player2PowerNineInput) {
+                    player2PowerNineInput.value = '{}';
+                }
+
+                // Spielernamen im Dropdown aktualisieren
+                const selectElement = document.getElementById('powerNinePlayerSelect');
+                if (selectElement && selectElement.options.length >= 2) {
+                    const player1Option = selectElement.options[0];
+                    const player2Option = selectElement.options[1];
+                    player1Option.text = cleanPlayerName(display1 || player1);
+                    player2Option.text = cleanPlayerName(display2 || player2);
+
+                    // Für Spieler 2, prüfe ob es ein BYE ist
+                    if (player2 === "BYE") {
+                        player2Option.disabled = true;
+                        player2Option.text = "BYE";
+                    } else {
+                        player2Option.disabled = false;
+                        player2Option.text = cleanPlayerName(display2 || player2);
+                    }
+                }
             }
             
             // Zeige Spielernamen an (mit oder ohne 🦵-Symbol)
@@ -1537,19 +1598,25 @@
                     // Sammle alle Formulardaten
                     const formData = new FormData(form);
                     
-                    // Verarbeite Power Nine Daten
-                    const player1PowerNine = JSON.parse(document.getElementById('player1PowerNine').value || '{}');
-                    const player2PowerNine = JSON.parse(document.getElementById('player2PowerNine').value || '{}');
+                    // Verarbeite Power Nine Daten nur für Vintage-Turniere
+                    const player1PowerNineInput = document.getElementById('player1PowerNine');
+                    const player2PowerNineInput = document.getElementById('player2PowerNine');
+                    const player1PowerNine = isVintageTournament && player1PowerNineInput
+                        ? JSON.parse(player1PowerNineInput.value || '{}')
+                        : {};
+                    const player2PowerNine = isVintageTournament && player2PowerNineInput
+                        ? JSON.parse(player2PowerNineInput.value || '{}')
+                        : {};
                     const player1Name = document.getElementById('modalPlayer1').value;
                     const player2Name = document.getElementById('modalPlayer2').value;
                     
                     // Wenn Power Nine Daten vorhanden sind, füge sie hinzu
-                    if (Object.keys(player1PowerNine).length > 0) {
+                    if (isVintageTournament && Object.keys(player1PowerNine).length > 0) {
                         formData.append('player1_power_nine', JSON.stringify(player1PowerNine));
                         formData.append('player1_name', player1Name);
                     }
                     
-                    if (Object.keys(player2PowerNine).length > 0 && player2Name !== "BYE") {
+                    if (isVintageTournament && Object.keys(player2PowerNine).length > 0 && player2Name !== "BYE") {
                         formData.append('player2_power_nine', JSON.stringify(player2PowerNine));
                         formData.append('player2_name', player2Name);
                     }
@@ -1639,7 +1706,13 @@
         
         // Toggle-Funktion für den Power Nine Bereich
         function togglePowerNineSection() {
+            if (!isVintageTournament) {
+                return;
+            }
             const section = document.getElementById('powerNineSection');
+            if (!section) {
+                return;
+            }
             if (section.style.display === 'none') {
                 section.style.display = 'block';
                 // Generiere Power Nine Karten für den ausgewählten Spieler
@@ -1651,7 +1724,13 @@
         
         // Laden der Power Nine Daten für den aktuell ausgewählten Spieler
         function loadPowerNineForCurrentPlayer() {
+            if (!isVintageTournament) {
+                return;
+            }
             const selectElement = document.getElementById('powerNinePlayerSelect');
+            if (!selectElement) {
+                return;
+            }
             const selectedValue = selectElement.value;
             
             // Bestimme Spielername basierend auf der Auswahl
@@ -1682,6 +1761,9 @@
         
         // Funktion zum Abrufen der Power Nine Daten eines Spielers
         async function fetchPlayerPowerNine(playerName, playerKey) {
+            if (!isVintageTournament) {
+                return;
+            }
             try {
                 const response = await fetch(`/api/player/${encodeURIComponent(playerName)}/power_nine`);
                 const data = await response.json();
@@ -1703,6 +1785,9 @@
         // Funktion zum Rendern der Power Nine Karten
         function renderPowerNineCards(playerPowerNine, playerKey) {
             const cardsContainer = document.getElementById('powerNineCards');
+            if (!cardsContainer) {
+                return;
+            }
             cardsContainer.innerHTML = '';
             
             POWER_NINE_CARDS.forEach(card => {
@@ -1726,6 +1811,9 @@
         // Funktion zum Rendern leerer Power Nine Karten
         function renderEmptyPowerNineCards() {
             const cardsContainer = document.getElementById('powerNineCards');
+            if (!cardsContainer) {
+                return;
+            }
             cardsContainer.innerHTML = '<p style="grid-column: 1 / -1; text-align: center; color: #666;">Dieser Spieler kann keine Power Nine Karten erhalten.</p>';
         }
         
@@ -1769,7 +1857,10 @@
         // Funktion zum Aktualisieren des versteckten Inputs mit den Power Nine Daten
         function updatePowerNineInput(playerKey, powerNineData) {
             const inputId = playerKey === 'player1' ? 'player1PowerNine' : 'player2PowerNine';
-            document.getElementById(inputId).value = JSON.stringify(powerNineData);
+            const inputElement = document.getElementById(inputId);
+            if (inputElement) {
+                inputElement.value = JSON.stringify(powerNineData);
+            }
         }
         
         // Hilfsfunktion für Erfolgsmeldung
@@ -1947,6 +2038,21 @@
         </div>
     </div>
 
+    {% if running_tournaments and running_tournaments|length > 1 %}
+        <div class="tournament-switcher">
+            <span class="tournament-switcher-label">Turnier wechseln:</span>
+            {% for t in running_tournaments %}
+                <a
+                    href="{{ url_for('main.load_tournament', tournament_id=t.id) }}"
+                    class="tournament-switch-btn {% if t.id == tournament_id %}current{% endif %}"
+                    title="{{ t.group_name }} • {{ t.cube_name }} • {{ t.player_count }} Spieler"
+                >
+                    Runde {{ t.current_round }} • {{ t.player_count }} Spieler • {{ t.group_name }} • Cube: {{ t.cube_name }}
+                </a>
+            {% endfor %}
+        </div>
+    {% endif %}
+
     {% if matches %}
         <!-- Debug-Ausgabe für Entwickler -->
         <!--
@@ -1983,12 +2089,12 @@
                             {% set clean_player2 = match.player2 %}
                             
                             <!-- Power Nine Emojis für Spieler -->
-                            {% set player1_p9 = all_players_data.get(match.player1, {}).get('power_nine', {}) %}
-                            {% set player2_p9 = all_players_data.get(match.player2, {}).get('power_nine', {}) %}
+                            {% set player1_p9 = all_players_data.get(match.player1, {}).get('power_nine', {}) if is_vintage_tournament else {} %}
+                            {% set player2_p9 = all_players_data.get(match.player2, {}).get('power_nine', {}) if is_vintage_tournament else {} %}
                             {% set p9_emojis1 = [] %}
                             {% set p9_emojis2 = [] %}
                             
-                            {% if player1_p9 %}
+                            {% if is_vintage_tournament and player1_p9 %}
                                 {% for card_name, has_card in player1_p9.items() %}
                                     {% if has_card %}
                                         {% if card_name == "Black Lotus" %}
@@ -2014,7 +2120,7 @@
                                 {% endfor %}
                             {% endif %}
                             
-                            {% if player2_p9 %}
+                            {% if is_vintage_tournament and player2_p9 %}
                                 {% for card_name, has_card in player2_p9.items() %}
                                     {% if has_card %}
                                         {% if card_name == "Black Lotus" %}
@@ -2239,35 +2345,37 @@
                     <input type="hidden" name="score_draws" id="modalScoreDraws" value="0">
                 </div>
 
-                <!-- Power Nine Bereich Button -->
-                <div style="margin-top: 20px; text-align: center;">
-                    <button type="button" class="btn-result" onclick="togglePowerNineSection()" style="width: auto">
-                        Power Nine hinzufügen
-                    </button>
-                </div>
-                
-                <!-- Power Nine Bereich (anfangs versteckt) -->
-                <div id="powerNineSection" style="display: none; margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px;">
-                    <h3 style="margin-bottom: 10px;">Power Nine Karten zuweisen</h3>
-                    
-                    <!-- Spielerauswahl für Power Nine -->
-                    <div style="margin-bottom: 15px;">
-                        <label for="powerNinePlayerSelect" style="display: block; margin-bottom: 5px; font-weight: 500;">Spieler:</label>
-                        <select id="powerNinePlayerSelect" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
-                            <option value="player1">Spieler 1</option>
-                            <option value="player2">Spieler 2</option>
-                        </select>
+                {% if is_vintage_tournament %}
+                    <!-- Power Nine Bereich Button -->
+                    <div style="margin-top: 20px; text-align: center;">
+                        <button type="button" class="btn-result" onclick="togglePowerNineSection()" style="width: auto">
+                            Power Nine hinzufügen
+                        </button>
                     </div>
                     
-                    <!-- Karten Grid -->
-                    <div id="powerNineCards" class="power-nine-grid">
-                        <!-- Wird per JavaScript befüllt -->
+                    <!-- Power Nine Bereich (anfangs versteckt) -->
+                    <div id="powerNineSection" style="display: none; margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px;">
+                        <h3 style="margin-bottom: 10px;">Power Nine Karten zuweisen</h3>
+                        
+                        <!-- Spielerauswahl für Power Nine -->
+                        <div style="margin-bottom: 15px;">
+                            <label for="powerNinePlayerSelect" style="display: block; margin-bottom: 5px; font-weight: 500;">Spieler:</label>
+                            <select id="powerNinePlayerSelect" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                                <option value="player1">Spieler 1</option>
+                                <option value="player2">Spieler 2</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Karten Grid -->
+                        <div id="powerNineCards" class="power-nine-grid">
+                            <!-- Wird per JavaScript befüllt -->
+                        </div>
+                        
+                        <!-- Input-Felder für die Power Nine Daten -->
+                        <input type="hidden" id="player1PowerNine" name="player1PowerNine" value="{}">
+                        <input type="hidden" id="player2PowerNine" name="player2PowerNine" value="{}">
                     </div>
-                    
-                    <!-- Input-Felder für die Power Nine Daten -->
-                    <input type="hidden" id="player1PowerNine" name="player1PowerNine" value="{}">
-                    <input type="hidden" id="player2PowerNine" name="player2PowerNine" value="{}">
-                </div>
+                {% endif %}
 
                 <!-- Fehlermeldungsfeld - jetzt mit verbessertem Design -->
                 <div class="error-message-box error-message-box-modal" id="errorMessageBox" role="alert">

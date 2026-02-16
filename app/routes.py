@@ -8,11 +8,21 @@ from collections import defaultdict
 import json
 from .tournament_groups import (
     DEFAULT_GROUP_ID,
+    create_tournament_group,
+    delete_tournament_group,
+    get_cube_name,
     get_group_name,
+    get_tournament_cube_id,
+    get_tournament_cube_name,
     get_tournament_group_id,
     get_tournament_group_name,
+    is_vintage_tournament,
+    is_valid_cube_id,
     is_valid_group_id,
+    load_allowed_cubes,
     load_tournament_groups,
+    reassign_group_in_meta,
+    rename_tournament_group,
     remove_tournament_group,
     set_tournament_group,
 )
@@ -120,6 +130,14 @@ def get_last_tournaments(limit=5, group_filter=None):
                     group_id = get_tournament_group_id(tournament_id)
                 tournament_info["group_id"] = group_id
                 tournament_info["group_name"] = get_group_name(group_id)
+                cube_id = tournament_data.get("tournament_data", {}).get("cube_id")
+                cube_name = tournament_data.get("tournament_data", {}).get("cube_name")
+                if not is_valid_cube_id(cube_id):
+                    cube_id = get_tournament_cube_id(tournament_id)
+                if not cube_name:
+                    cube_name = get_cube_name(cube_id)
+                tournament_info["cube_id"] = cube_id
+                tournament_info["cube_name"] = cube_name
                 if group_filter and tournament_info["group_id"] != group_filter:
                     continue
                 last_tournaments.append(tournament_info)
@@ -236,6 +254,8 @@ def get_active_tournaments(limit=10, group_filter=None):
             "is_current_session": session.get("tournament_id") == tournament_id,
             "group_id": get_tournament_group_id(tournament_id),
             "group_name": get_tournament_group_name(tournament_id),
+            "cube_id": get_tournament_cube_id(tournament_id),
+            "cube_name": get_tournament_cube_name(tournament_id),
         })
 
     if group_filter:
@@ -244,11 +264,21 @@ def get_active_tournaments(limit=10, group_filter=None):
     tournaments.sort(key=lambda t: t["updated_at_ts"], reverse=True)
     return tournaments[:limit]
 
-def render_index_page(players_text="", error=None, selected_group_id=DEFAULT_GROUP_ID, group_filter="all"):
+def render_index_page(
+    players_text="",
+    error=None,
+    selected_group_id=DEFAULT_GROUP_ID,
+    selected_cube="vintage",
+    group_filter="all",
+):
     tournament_groups = load_tournament_groups()
+    allowed_cubes = load_allowed_cubes()
+    allowed_cube_ids = {cube["id"] for cube in allowed_cubes}
     valid_group_ids = {group["id"] for group in tournament_groups}
     if selected_group_id not in valid_group_ids:
         selected_group_id = DEFAULT_GROUP_ID
+    if selected_cube not in allowed_cube_ids:
+        selected_cube = "vintage"
 
     normalized_filter = None
     if group_filter and group_filter != "all":
@@ -266,7 +296,9 @@ def render_index_page(players_text="", error=None, selected_group_id=DEFAULT_GRO
         last_tournaments=last_tournaments,
         active_tournaments=active_tournaments,
         tournament_groups=tournament_groups,
+        allowed_cubes=allowed_cubes,
         selected_group_id=selected_group_id,
+        selected_cube=selected_cube,
         selected_group_filter=group_filter or "all",
     )
 
@@ -281,6 +313,46 @@ def index():
 
     group_filter = request.args.get("group_filter", "all")
     return render_index_page(players_text="", group_filter=group_filter)
+
+
+@main.route("/groups", methods=["GET"])
+def manage_groups():
+    """Zeigt die Gruppenverwaltung an."""
+    return render_template(
+        "groups.html",
+        tournament_groups=load_tournament_groups(),
+        default_group_id=DEFAULT_GROUP_ID,
+    )
+
+
+@main.route("/groups/create", methods=["POST"])
+def create_group():
+    group_name = request.form.get("group_name", "")
+    success, message, _ = create_tournament_group(group_name)
+    flash(message, "success" if success else "error")
+    return redirect(url_for("main.manage_groups"))
+
+
+@main.route("/groups/rename", methods=["POST"])
+def rename_group():
+    group_id = request.form.get("group_id", "")
+    group_name = request.form.get("group_name", "")
+    success, message = rename_tournament_group(group_id, group_name)
+    flash(message, "success" if success else "error")
+    return redirect(url_for("main.manage_groups"))
+
+
+@main.route("/groups/delete", methods=["POST"])
+def delete_group():
+    group_id = request.form.get("group_id", "")
+    # Referenzen in Turnier-Metadaten zuerst auf Default setzen.
+    reassigned_count = reassign_group_in_meta(group_id, DEFAULT_GROUP_ID)
+    success, message = delete_tournament_group(group_id)
+    if success and reassigned_count > 0:
+        flash(f"{message} {reassigned_count} Turnier(e) wurden auf 'Unkategorisiert' umgestellt.", "success")
+    else:
+        flash(message, "success" if success else "error")
+    return redirect(url_for("main.manage_groups"))
 
 @main.route("/load_tournament/<tournament_id>", methods=["GET"])
 def load_tournament(tournament_id):
@@ -298,6 +370,13 @@ def load_tournament(tournament_id):
     session["tournament_id"] = tournament_id
     session["leg_players_set"] = get_marked_players_for_tournament(tournament_id)
     session["tournament_ended"] = check_tournament_status(tournament_id)
+
+    # Stelle sicher, dass Legacy-Turniere beim Laden Cube-Metadaten erhalten.
+    set_tournament_group(
+        tournament_id,
+        get_tournament_group_id(tournament_id),
+        get_tournament_cube_id(tournament_id),
+    )
 
     if not os.path.exists(rounds_dir):
         flash("Turnier geladen, aber es wurden noch keine Runden erstellt.")
@@ -336,39 +415,25 @@ def validate_player_name(name):
         return False
     return True
 
-@main.route("/pair", methods=["POST"])
-def pair():
-    selected_group_id = request.form.get("tournament_group", DEFAULT_GROUP_ID)
-    if not is_valid_group_id(selected_group_id):
-        selected_group_id = DEFAULT_GROUP_ID
-    
-    # Verarbeite und validiere die Spielerliste
-    raw_players = request.form.getlist("players")
+def _validate_players_list(raw_players):
+    """Validiert und normalisiert eine Spielerliste."""
+    if not isinstance(raw_players, list):
+        return None, "Ungültige Spielerliste."
+
     players = []
     invalid_players = []
-
     for raw_name in raw_players:
-        cleaned_name = raw_name.strip()
+        cleaned_name = (raw_name or "").strip()
         if validate_player_name(cleaned_name):
             players.append(cleaned_name)
         else:
             invalid_players.append(raw_name)
 
     if invalid_players:
-        return render_index_page(
-            error="Ungültige Spielernamen gefunden. Namen dürfen nicht leer sein und maximal 50 Zeichen haben.",
-            players_text="\n".join(raw_players),
-            selected_group_id=selected_group_id,
-        )
-
+        return None, "Ungültige Spielernamen gefunden. Namen dürfen nicht leer sein und maximal 50 Zeichen haben."
     if not players:
-        return render_index_page(
-            error="Bitte geben Sie mindestens einen gültigen Spielernamen ein.",
-            players_text="",
-            selected_group_id=selected_group_id,
-        )
+        return None, "Bitte geben Sie mindestens einen gültigen Spielernamen ein."
 
-    # Überprüfe auf doppelte Spielernamen (case-insensitive)
     seen_players = {}
     duplicate_players = set()
     for player in players:
@@ -378,13 +443,220 @@ def pair():
             duplicate_players.add(player)
         else:
             seen_players[key] = player
-    
+
     if duplicate_players:
         duplicate_list = ", ".join(sorted(duplicate_players))
+        return None, f"Doppelte Spielernamen gefunden: {duplicate_list}. Bitte geben Sie eindeutige Namen ein."
+
+    return players, None
+
+def _create_started_tournament(players, table_size, group_id, cube_id, set_session_state=True):
+    """
+    Erstellt ein laufendes Turnier inkl. Runde 1 aus genau einem Tischblock.
+    Bei ungerader Spielerzahl wird automatisch ein BYE-Match angelegt.
+    """
+    tournament_id = str(uuid.uuid4())
+    set_tournament_group(tournament_id, group_id, cube_id)
+
+    data_dir = os.path.join("data", tournament_id)
+    os.makedirs(data_dir, exist_ok=True)
+
+    shuffled = players.copy()
+    random.shuffle(shuffled)
+
+    group_key = f"{table_size}-1"
+    player_groups = {group_key: players.copy()}
+    match_list = []
+    table_nr = 1
+
+    for i in range(0, len(shuffled) - 1, 2):
+        p1 = shuffled[i]
+        p2 = shuffled[i + 1]
+        match_list.append({
+            "table": str(table_nr),
+            "player1": p1,
+            "player2": p2,
+            "score1": "",
+            "score2": "",
+            "score_draws": "",
+            "dropout1": "false",
+            "dropout2": "false",
+            "table_size": str(table_size),
+            "group_key": group_key,
+        })
+        table_nr += 1
+
+    if len(shuffled) % 2 == 1:
+        bye_player = shuffled[-1]
+        match_list.append({
+            "table": str(table_nr),
+            "player1": bye_player,
+            "player2": "BYE",
+            "score1": "2",
+            "score2": "0",
+            "score_draws": "0",
+            "dropout1": "false",
+            "dropout2": "false",
+            "table_size": str(table_size),
+            "group_key": group_key,
+        })
+
+    with open(os.path.join(data_dir, "player_groups.json"), "w", encoding="utf-8") as f:
+        json.dump(player_groups, f)
+
+    rounds_dir = os.path.join(data_dir, "rounds")
+    os.makedirs(rounds_dir, exist_ok=True)
+    round_file = os.path.join(rounds_dir, "round_1.csv")
+    with open(round_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "table",
+                "player1",
+                "player2",
+                "score1",
+                "score2",
+                "score_draws",
+                "dropout1",
+                "dropout2",
+                "table_size",
+                "group_key",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(match_list)
+
+    if set_session_state:
+        session["tournament_id"] = tournament_id
+        session["leg_players_set"] = []
+        session["tournament_ended"] = False
+        session["player_groups"] = player_groups
+
+    return {
+        "tournament_id": tournament_id,
+        "player_groups": player_groups,
+        "player_count": len(players),
+    }
+
+def _extract_table_builder_payload():
+    raw_payload = (request.form.get("tables_payload") or "").strip()
+    if not raw_payload:
+        return None, "Bitte mindestens einen Tisch konfigurieren."
+    try:
+        payload = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        return None, "Ungültige Tisch-Konfiguration."
+    if not isinstance(payload, list) or not payload:
+        return None, "Bitte mindestens einen Tisch konfigurieren."
+    return payload, None
+
+@main.route("/start_tables", methods=["POST"])
+def start_tables():
+    payload, payload_error = _extract_table_builder_payload()
+    if payload_error:
+        return render_index_page(error=payload_error)
+
+    valid_group_ids = {group["id"] for group in load_tournament_groups()}
+    valid_cube_ids = {cube["id"] for cube in load_allowed_cubes()}
+    all_players_seen = set()
+    normalized_tables = []
+
+    for idx, table in enumerate(payload, start=1):
+        if not isinstance(table, dict):
+            return render_index_page(error=f"Ungültiger Tischblock {idx}.")
+        try:
+            table_size = int(table.get("table_size", 0))
+        except (TypeError, ValueError):
+            return render_index_page(error=f"Ungültige Tischgröße in Tisch {idx}.")
+        if table_size not in [6, 8, 10, 12]:
+            return render_index_page(error=f"Ungültige Tischgröße in Tisch {idx}.")
+
+        group_id = table.get("group_id", DEFAULT_GROUP_ID)
+        cube_id = table.get("cube_id", "vintage")
+        if group_id not in valid_group_ids:
+            group_id = DEFAULT_GROUP_ID
+        if cube_id not in valid_cube_ids:
+            cube_id = "vintage"
+
+        players, players_error = _validate_players_list(table.get("players", []))
+        if players_error:
+            return render_index_page(error=f"Tisch {idx}: {players_error}")
+
+        if len(players) > table_size:
+            return render_index_page(
+                error=(
+                    f"Tisch {idx}: Zu viele Spieler ({len(players)}) für Tischgröße {table_size}. "
+                    "Bitte Spielerzahl reduzieren oder Tischgröße erhöhen."
+                )
+            )
+        if len(players) < 2:
+            return render_index_page(error=f"Tisch {idx}: Mindestens 2 Spieler erforderlich.")
+
+        duplicates_across_tables = [player for player in players if player in all_players_seen]
+        if duplicates_across_tables:
+            duplicate_text = ", ".join(sorted(set(duplicates_across_tables)))
+            return render_index_page(
+                error=f"Spieler dürfen nicht in mehreren Tischen sein. Doppelt gefunden: {duplicate_text}."
+            )
+
+        all_players_seen.update(players)
+        normalized_tables.append(
+            {
+                "table_size": table_size,
+                "group_id": group_id,
+                "cube_id": cube_id,
+                "players": players,
+            }
+        )
+
+    random.seed(42)
+    created_tournaments = []
+    for table in normalized_tables:
+        created_tournaments.append(
+            _create_started_tournament(
+                table["players"],
+                table["table_size"],
+                table["group_id"],
+                table["cube_id"],
+                set_session_state=False,
+            )
+        )
+
+    primary = created_tournaments[0]
+    session["tournament_id"] = primary["tournament_id"]
+    session["leg_players_set"] = []
+    session["tournament_ended"] = False
+    session["player_groups"] = primary["player_groups"]
+
+    summary = []
+    for idx, created in enumerate(created_tournaments, start=1):
+        summary.append(f"Tisch {idx}: {created['tournament_id'][:8]} ({created['player_count']} Spieler)")
+    flash(f"{len(created_tournaments)} Turnier(e) gestartet. " + "; ".join(summary))
+    return redirect(url_for("main.show_round", round_number=1))
+
+@main.route("/pair", methods=["POST"])
+def pair():
+    selected_group_id = request.form.get("tournament_group", DEFAULT_GROUP_ID)
+    if not is_valid_group_id(selected_group_id):
+        selected_group_id = DEFAULT_GROUP_ID
+    selected_cube = (request.form.get("tournament_cube") or "").strip()
+    if not is_valid_cube_id(selected_cube):
         return render_index_page(
-            error=f"Doppelte Spielernamen gefunden: {duplicate_list}. Bitte geben Sie eindeutige Namen ein.",
-            players_text="\n".join(players),
+            error="Ungültiger Cube. Bitte wählen Sie einen erlaubten Cube aus.",
+            players_text="\n".join(request.form.getlist("players")),
             selected_group_id=selected_group_id,
+            selected_cube=selected_cube,
+        )
+    
+    # Verarbeite und validiere die Spielerliste
+    raw_players = request.form.getlist("players")
+    players, players_error = _validate_players_list(raw_players)
+    if players_error:
+        return render_index_page(
+            error=players_error,
+            players_text="\n".join(raw_players),
+            selected_group_id=selected_group_id,
+            selected_cube=selected_cube,
         )
     
     group_sizes = request.form.getlist("group_sizes")
@@ -397,6 +669,17 @@ def pair():
                 error="Bitte wählen Sie mindestens eine Tischgrösse aus.",
                 players_text="\n".join(players),
                 selected_group_id=selected_group_id,
+                selected_cube=selected_cube,
+            )
+        if len(allowed_sizes) > 1:
+            return render_index_page(
+                error=(
+                    "Mehrere Tischgrößen bitte über den neuen Tisch-Builder starten. "
+                    "Konfiguriere dafür mehrere Tische auf der Startseite."
+                ),
+                players_text="\n".join(players),
+                selected_group_id=selected_group_id,
+                selected_cube=selected_cube,
             )
         
         # Finde mögliche Gruppierungen
@@ -407,6 +690,7 @@ def pair():
                 error=f"Keine gültige Gruppierung für {len(players)} Spieler mit den Tischgrössen {allowed_sizes} möglich.",
                 players_text="\n".join(players),
                 selected_group_id=selected_group_id,
+                selected_cube=selected_cube,
             )
 
         # Neues Turnier erst nach erfolgreicher Validierung anlegen.
@@ -414,7 +698,7 @@ def pair():
         session["tournament_id"] = tournament_id
         session["leg_players_set"] = []
         session["tournament_ended"] = False
-        set_tournament_group(tournament_id, selected_group_id)
+        set_tournament_group(tournament_id, selected_group_id, selected_cube)
         data_dir = os.path.join("data", tournament_id)
         os.makedirs(data_dir, exist_ok=True)
         
@@ -503,12 +787,14 @@ def pair():
             error=f"Fehler bei der Verarbeitung der Gruppengrößen: {str(e)}",
             players_text="\n".join(players),
             selected_group_id=selected_group_id,
+            selected_cube=selected_cube,
         )
     except Exception as e:
         return render_index_page(
             error=f"Ein unerwarteter Fehler ist aufgetreten: {str(e)}",
             players_text="\n".join(players),
             selected_group_id=selected_group_id,
+            selected_cube=selected_cube,
         )
 
 def ensure_data_directory():
@@ -534,6 +820,7 @@ def save_results():
     if tournament_ended:
         # Wenn das Turnier bereits beendet ist, gebe eine Fehlermeldung zurück
         return jsonify({"success": False, "message": "Das Turnier wurde bereits beendet."}), 400
+    is_vintage = is_vintage_tournament(tournament_id)
 
     print("\n\n=== SAVE_RESULTS AUFGERUFEN ===")
     print(f"Tournament ID: {tournament_id}")
@@ -559,8 +846,8 @@ def save_results():
     print(f"Daten aus Formular: Tisch {table}, {player1} vs {player2}, Ergebnis: {score1}-{score2}-{score_draws}, Tischgrösse: {table_size}, Runde: {current_round}")
     print(f"Dropout1: {dropout1}, Dropout2: {dropout2}")
     
-    # Verarbeite Power Nine Daten, falls vorhanden
-    if player1_power_nine and player1_name:
+    # Verarbeite Power Nine Daten nur für Vintage-Turniere
+    if is_vintage and player1_power_nine and player1_name:
         try:
             power_nine_data = json.loads(player1_power_nine)
             print(f"Power Nine Daten für {player1_name} empfangen: {power_nine_data}")
@@ -572,7 +859,7 @@ def save_results():
         except Exception as e:
             print(f"Fehler bei der Verarbeitung der Power Nine Daten für {player1_name}: {e}")
     
-    if player2_power_nine and player2_name and player2_name != "BYE":
+    if is_vintage and player2_power_nine and player2_name and player2_name != "BYE":
         try:
             power_nine_data = json.loads(player2_power_nine)
             print(f"Power Nine Daten für {player2_name} empfangen: {power_nine_data}")
@@ -1201,6 +1488,8 @@ def end_tournament():
         "total_rounds": total_rounds,
         "group_id": get_tournament_group_id(tournament_id),
         "group_name": get_tournament_group_name(tournament_id),
+        "cube_id": get_tournament_cube_id(tournament_id),
+        "cube_name": get_tournament_cube_name(tournament_id),
         "player_groups": player_groups,
         "is_ended": True  # Markiere das Turnier als beendet
     }
@@ -1307,38 +1596,38 @@ def show_round(round_number):
     
     # Prüfe, ob das Turnier beendet ist - zweifache Prüfung für Konsistenz
     tournament_ended = check_tournament_status(tournament_id)
+    is_vintage = is_vintage_tournament(tournament_id)
     
-    # Lade Spielerdaten für Power Nine
-    from .player_stats import POWER_NINE
-    
-    # Lade die turnierspezifischen Power Nine Daten anstelle der globalen Daten
+    # Lade Power-Nine-Daten nur für Vintage-Turniere
     all_players_data = {}
-    tournament_power_nine = get_tournament_power_nine(tournament_id)
+    tournament_power_nine = get_tournament_power_nine(tournament_id) if is_vintage else {}
     
     # Erstelle ein Dictionary mit den Spielerdaten für das Template
-    for match in matches:
-        player1 = match['player1']
-        player2 = match['player2']
-        
-        # Füge Spieler 1 hinzu, falls noch nicht vorhanden
-        if player1 not in all_players_data:
-            all_players_data[player1] = {
-                'power_nine': tournament_power_nine.get(player1, {})
-            }
-            # Stelle sicher, dass alle Power Nine Karten vorhanden sind
-            for card in POWER_NINE:
-                if card not in all_players_data[player1]['power_nine']:
-                    all_players_data[player1]['power_nine'][card] = False
-        
-        # Füge Spieler 2 hinzu, falls noch nicht vorhanden und kein BYE
-        if player2 != "BYE" and player2 not in all_players_data:
-            all_players_data[player2] = {
-                'power_nine': tournament_power_nine.get(player2, {})
-            }
-            # Stelle sicher, dass alle Power Nine Karten vorhanden sind
-            for card in POWER_NINE:
-                if card not in all_players_data[player2]['power_nine']:
-                    all_players_data[player2]['power_nine'][card] = False
+    if is_vintage:
+        from .player_stats import POWER_NINE
+        for match in matches:
+            player1 = match['player1']
+            player2 = match['player2']
+            
+            # Füge Spieler 1 hinzu, falls noch nicht vorhanden
+            if player1 not in all_players_data:
+                all_players_data[player1] = {
+                    'power_nine': tournament_power_nine.get(player1, {})
+                }
+                # Stelle sicher, dass alle Power Nine Karten vorhanden sind
+                for card in POWER_NINE:
+                    if card not in all_players_data[player1]['power_nine']:
+                        all_players_data[player1]['power_nine'][card] = False
+            
+            # Füge Spieler 2 hinzu, falls noch nicht vorhanden und kein BYE
+            if player2 != "BYE" and player2 not in all_players_data:
+                all_players_data[player2] = {
+                    'power_nine': tournament_power_nine.get(player2, {})
+                }
+                # Stelle sicher, dass alle Power Nine Karten vorhanden sind
+                for card in POWER_NINE:
+                    if card not in all_players_data[player2]['power_nine']:
+                        all_players_data[player2]['power_nine'][card] = False
     
     return render_template(
         'pair.html',
@@ -1349,7 +1638,9 @@ def show_round(round_number):
         leaderboard=leaderboard,
         bye_counts=bye_counts,
         tournament_ended=tournament_ended,
-        all_players_data=all_players_data
+        all_players_data=all_players_data,
+        is_vintage_tournament=is_vintage,
+        running_tournaments=get_active_tournaments(limit=50),
     )
 
 def calculate_opponents_match_percentage(player, stats):
@@ -1606,12 +1897,17 @@ def players_list():
 
     tournament_groups = load_tournament_groups()
     valid_group_ids = {group["id"] for group in tournament_groups}
+    cube_filter_options = [{"id": "all", "name": "Alle Cubes"}] + load_allowed_cubes()
+    valid_cube_ids = {cube["id"] for cube in cube_filter_options if cube["id"] != "all"}
     stats_scope = request.args.get("scope", "global")
     selected_group_id = request.args.get("group_id", DEFAULT_GROUP_ID)
+    selected_cube_id = (request.args.get("cube", "all") or "all").strip().lower()
     if selected_group_id not in valid_group_ids:
         selected_group_id = DEFAULT_GROUP_ID
     if stats_scope != "group":
         stats_scope = "global"
+    if selected_cube_id != "all" and selected_cube_id not in valid_cube_ids:
+        selected_cube_id = "all"
 
     stats_group_id = selected_group_id if stats_scope == "group" else None
     
@@ -1627,10 +1923,14 @@ def players_list():
             
         # Lade Spielerdaten und Statistiken
         player_data = load_player_data(player)
-        player_stats = get_player_statistics(player, group_id=stats_group_id)
+        player_stats = get_player_statistics(
+            player,
+            group_id=stats_group_id,
+            cube_filter=selected_cube_id,
+        )
         
-        # Verwende die neue Gesamtzahl der Power Nine Karten aus den Statistiken
-        power_nine_count = player_stats.get("power_nine_total", 0)
+        # Power Nine wird nur im Vintage-Filter angezeigt
+        power_nine_count = player_stats.get("power_nine_total", 0) if selected_cube_id == "vintage" else 0
         
         # Speichere strukturierte Daten für die Anzeige
         players_data[player] = {
@@ -1653,6 +1953,9 @@ def players_list():
         stats_scope=stats_scope,
         selected_group_id=selected_group_id,
         tournament_groups=tournament_groups,
+        selected_cube_id=selected_cube_id,
+        cube_filter_options=cube_filter_options,
+        show_power_nine_stats=(selected_cube_id == "vintage"),
     )
 
 @main.route("/player/<player_name>")
@@ -1667,18 +1970,27 @@ def player_profile(player_name):
     from .player_stats import load_player_data, get_player_statistics, POWER_NINE
 
     tournament_groups = load_tournament_groups()
+    cube_filter_options = [{"id": "all", "name": "Alle Cubes"}] + load_allowed_cubes()
     valid_group_ids = {group["id"] for group in tournament_groups}
+    valid_cube_ids = {cube["id"] for cube in cube_filter_options if cube["id"] != "all"}
     stats_scope = request.args.get("scope", "global")
     selected_group_id = request.args.get("group_id", DEFAULT_GROUP_ID)
+    selected_cube_id = (request.args.get("cube", "all") or "all").strip().lower()
     if selected_group_id not in valid_group_ids:
         selected_group_id = DEFAULT_GROUP_ID
     if stats_scope != "group":
         stats_scope = "global"
+    if selected_cube_id != "all" and selected_cube_id not in valid_cube_ids:
+        selected_cube_id = "all"
     stats_group_id = selected_group_id if stats_scope == "group" else None
     
     # Lade Spielerdaten
     player_data = load_player_data(player_name)
-    player_stats = get_player_statistics(player_name, group_id=stats_group_id)
+    player_stats = get_player_statistics(
+        player_name,
+        group_id=stats_group_id,
+        cube_filter=selected_cube_id,
+    )
     
     return render_template(
         "player_profile.html",
@@ -1689,6 +2001,9 @@ def player_profile(player_name):
         stats_scope=stats_scope,
         selected_group_id=selected_group_id,
         tournament_groups=tournament_groups,
+        selected_cube_id=selected_cube_id,
+        cube_filter_options=cube_filter_options,
+        show_power_nine_stats=(selected_cube_id == "vintage"),
     )
 
 @main.route("/player/<player_name>/delete", methods=["POST"])
@@ -1723,6 +2038,12 @@ def get_player_power_nine(player_name):
     tournament_id = session.get("tournament_id")
     if not tournament_id:
         # Wenn kein Turnier aktiv ist, gib leere Power Nine Daten zurück
+        return jsonify({
+            "success": True,
+            "player_name": player_name,
+            "power_nine": {card: False for card in POWER_NINE}
+        })
+    if not is_vintage_tournament(tournament_id):
         return jsonify({
             "success": True,
             "player_name": player_name,
@@ -1769,6 +2090,11 @@ def update_player_power_nine_api(player_name):
             "success": False,
             "message": "Kein aktives Turnier gefunden."
         })
+    if not is_vintage_tournament(tournament_id):
+        return jsonify({
+            "success": True,
+            "message": "Power Nine ist nur in Vintage-Turnieren aktiv."
+        })
     
     # Aktualisiere die Power Nine Daten für das aktuelle Turnier
     success = update_tournament_power_nine(tournament_id, player_name, power_nine_data)
@@ -1794,6 +2120,8 @@ def update_tournament_power_nine(tournament_id, player_name, power_nine_data):
     Diese Funktion speichert die Daten in einer tournament_power_nine.json Datei
     im Datenverzeichnis des Turniers.
     """
+    if not is_vintage_tournament(tournament_id):
+        return True
     try:
         data_dir = os.path.join("data", tournament_id)
         if not os.path.exists(data_dir):
@@ -1824,6 +2152,8 @@ def get_tournament_power_nine(tournament_id):
     """
     Holt die Power Nine Karten für alle Spieler in einem bestimmten Turnier.
     """
+    if not is_vintage_tournament(tournament_id):
+        return {}
     try:
         data_dir = os.path.join("data", tournament_id)
         power_nine_file = os.path.join(data_dir, "tournament_power_nine.json")
