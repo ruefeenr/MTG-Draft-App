@@ -81,11 +81,11 @@ def _generate_unique_cube_id(name):
     base = slugify_cube_name(name)
     if base == DEFAULT_CUBE_ID:
         base = f"{base}_custom"
-    if Cube.query.get(base) is None:
+    if db.session.get(Cube, base) is None:
         return base
     while True:
         candidate = f"{base}_{uuid.uuid4().hex[:4]}"
-        if Cube.query.get(candidate) is None:
+        if db.session.get(Cube, candidate) is None:
             return candidate
 
 
@@ -126,7 +126,7 @@ def rename_cube(cube_id, new_name):
         return False, "Cube-Name darf maximal 80 Zeichen lang sein."
 
     ensure_default_cubes()
-    row = Cube.query.get(target_id)
+    row = db.session.get(Cube, target_id)
     if row is None:
         return False, "Cube wurde nicht gefunden."
 
@@ -165,7 +165,7 @@ def delete_cube(cube_id):
     if target_id == DEFAULT_CUBE_ID:
         return False, "Der Standard-Cube kann nicht gelöscht werden."
 
-    row = Cube.query.get(target_id)
+    row = db.session.get(Cube, target_id)
     if row is None:
         return False, "Cube wurde nicht gefunden."
     db.session.delete(row)

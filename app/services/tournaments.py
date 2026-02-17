@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..db import db
 from ..models import Tournament
@@ -24,7 +24,7 @@ def create_tournament(tournament_id, group_id=DEFAULT_GROUP_ID, cube_id=DEFAULT_
 def get_tournament(tournament_id):
     if not tournament_id:
         return None
-    return Tournament.query.get(tournament_id)
+    return db.session.get(Tournament, tournament_id)
 
 
 def ensure_tournament(tournament_id, group_id=DEFAULT_GROUP_ID, cube_id=DEFAULT_CUBE_ID):
@@ -57,6 +57,6 @@ def set_tournament_status(tournament_id, status):
         return None
     row.status = status
     if status == "ended":
-        row.ended_at = datetime.utcnow()
+        row.ended_at = datetime.now(timezone.utc)
     db.session.commit()
     return row

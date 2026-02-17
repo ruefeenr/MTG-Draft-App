@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest with coverage gate
+        run: python -m pytest -q --cov=app --cov-report=term-missing --cov-fail-under=70
+
+      - name: Run focused critical-module coverage gate
+        run: python -m pytest -q --cov=app.routes --cov=app.player_stats --cov=app.services --cov-report=term --cov-fail-under=60
+
+      - name: Run critical smoke flow
+        run: python -m pytest -q tests/test_tournament_lifecycle.py::test_lifecycle_start_save_next_end_archives_and_updates_db tests/test_public_hardening.py::test_healthz_returns_ok
+
+      - name: Migration smoke test (fresh SQLite)
+        env:
+          FLASK_SECRET_KEY: ci-secret-key
+          DATABASE_URL: sqlite:///ci_smoke.db
+        run: |
+          flask --app run.py db upgrade
+
+      - name: Backup restore drill (SQLite)
+        run: python scripts/sqlite_backup_restore_drill.py

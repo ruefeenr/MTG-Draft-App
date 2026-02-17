@@ -1034,7 +1034,30 @@
         .alert strong {
             font-weight: 600;
         }
-        
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            background: #eef2ff;
+            color: #3730a3;
+        }
+
+        .status-pill.running {
+            background: #ecfdf5;
+            color: #047857;
+        }
+
+        .status-pill.ended {
+            background: #fef2f2;
+            color: #b91c1c;
+        }
+
         /* Verbesserte Fehlermeldung im Modal */
         .error-message-box {
             display: none;
@@ -1301,7 +1324,7 @@
                 }
             });
         }
-        
+
         // Hilfsfunktion zum Entfernen des 🦵-Symbols aus einem Namen
         function cleanPlayerName(name) {
             if (!name) return "";
@@ -2021,17 +2044,22 @@
             <a href="{{ url_for('main.index') }}" class="btn-result" style="display:inline-block; text-decoration:none; background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Zur Startseite</a>
         </div>
         <div style="display: flex; gap: 1em; margin-left: {% if tournament_ended %}20px{% else %}0{% endif %};">
+            <div class="status-pill {% if tournament_ended %}ended{% else %}running{% endif %}">
+                Status: {% if tournament_ended %}beendet{% else %}läuft{% endif %}
+            </div>
             {% if tournament_ended %}
                 <div class="alert" style="display: inline-block;">
                     <strong>Hinweis:</strong> Dieses Turnier wurde bereits beendet. Sie können die Rundenansicht weiterhin nutzen, aber keine Änderungen mehr vornehmen.
                 </div>
             {% else %}
                 <form method="POST" action="{{ url_for('main.next_round') }}" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Nächste Runde</button>
                 </form>
             {% endif %}
             {% if not tournament_ended %}
                 <form method="POST" action="/end_tournament" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Turnier beenden</button>
                 </form>
             {% endif %}
@@ -2292,6 +2320,7 @@
             <span class="close" onclick="closeResultModal()">&times;</span>
             <h2 id="modalTitle">Ergebnis eingeben</h2>
             <form method="POST" action="{{ url_for('main.save_results') }}" id="resultForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" id="modalTable" name="table">
                 <input type="hidden" id="modalPlayer1" name="player1">
                 <input type="hidden" id="modalPlayer2" name="player2">

@@ -53,6 +53,50 @@ class TableBuilderFlowTests(unittest.TestCase):
             self.assertTrue(any(v.get("group_id") == "liga" and v.get("cube_id") == "vintage" for v in values))
             self.assertTrue(any(v.get("group_id") == "casual" and v.get("cube_id") == "pauper" for v in values))
 
+            with client.session_transaction() as sess:
+                primary_tournament_id = sess.get("tournament_id")
+            self.assertTrue(primary_tournament_id)
+            self.assertIn(primary_tournament_id, meta)
+
+            primary_groups_file = os.path.join("data", primary_tournament_id, "player_groups.json")
+            self.assertTrue(os.path.exists(primary_groups_file))
+            with open(primary_groups_file, "r", encoding="utf-8") as f:
+                primary_groups = json.load(f)
+            primary_players = {p for players in primary_groups.values() for p in players}
+            self.assertEqual(primary_players, set(payload[0]["players"]))
+
+    def test_start_tables_rejects_duplicate_players_across_tables(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+
+            payload = [
+                {
+                    "table_size": 6,
+                    "group_id": "liga",
+                    "cube_id": "vintage",
+                    "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
+                },
+                {
+                    "table_size": 8,
+                    "group_id": "casual",
+                    "cube_id": "pauper",
+                    "players": ["Alice", "Gina", "Hank", "Iris", "John", "Kara", "Liam"],
+                },
+            ]
+
+            response = client.post(
+                "/start_tables",
+                data={"tables_payload": json.dumps(payload)},
+                follow_redirects=True,
+            )
+            self.assertEqual(response.status_code, 200)
+            html = response.get_data(as_text=True)
+            self.assertIn("Spieler dürfen nicht in mehreren Tischen sein", html)
+
+            meta = load_tournament_meta()
+            self.assertEqual(len(meta), 0)
+
     def test_odd_players_receive_bye_match_in_round_one(self):
         with temp_cwd():
             app = create_app()

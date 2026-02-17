@@ -71,7 +71,7 @@
         .player-input-section {
             display: flex;
             gap: 12px;
-            margin-bottom: 20px;
+            margin-bottom: 8px;
         }
 
         .player-input-field {
@@ -105,6 +105,21 @@
             background: linear-gradient(135deg, var(--gradient-end) 0%, var(--dark-color) 100%);
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .player-input-hint {
+            min-height: 20px;
+            margin: 0 0 12px 0;
+            font-size: 0.9em;
+            color: #64748b;
+        }
+
+        .player-input-hint.warning {
+            color: #b45309;
+        }
+
+        .player-input-hint.success {
+            color: #047857;
         }
 
         .players-table {
@@ -730,6 +745,14 @@
 
         <div class="navigation-buttons" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <a href="{{ url_for('main.players_list') }}" style="display: inline-block; padding: 10px 20px; background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white; text-decoration: none; border-radius: 6px; font-weight: 500;">Spielerstatistiken</a>
+            {% if config.get("APP_LOGIN_ENABLED") %}
+            <form method="POST" action="{{ url_for('main.logout') }}" style="margin: 0;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" style="padding: 10px 14px; border: none; border-radius: 6px; cursor: pointer; background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%); color: white; font-weight: 500;">
+                    Logout
+                </button>
+            </form>
+            {% endif %}
         </div>
 
         {% if error %}
@@ -737,16 +760,13 @@
         {% endif %}
 
         <form method="POST" action="{{ url_for('main.start_tables') }}" id="tableBuilderForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="tables_payload" id="tablesPayload">
             <datalist id="knownPlayersList">
                 {% for player_name in known_player_names %}
                     <option value="{{ player_name }}"></option>
                 {% endfor %}
             </datalist>
-            <div style="margin: 4px 0 12px 0;">
-                <a href="{{ url_for('main.manage_groups') }}" style="font-size: 0.9rem; color: #1e3a8a; text-decoration: none; font-weight: 600;">Gruppen verwalten</a>
-            </div>
-
             <div id="tablesContainer"></div>
 
             <div class="setup-section" style="margin-top: 8px;">
@@ -875,6 +895,7 @@
     </div>
 
     <script>
+        const CSRF_TOKEN = "{{ csrf_token() }}";
         const GROUP_OPTIONS = {{ tournament_groups | tojson }};
         const CUBE_OPTIONS = {{ allowed_cubes | tojson }};
         const KNOWN_PLAYER_NAMES = {{ known_player_names | tojson }};
@@ -960,8 +981,9 @@
                         </div>
                         <div class="player-input-section">
                             <input type="text" id="playerInput_${index}" class="player-input-field" placeholder="Spielername eingeben..." list="knownPlayersList" autocomplete="off">
-                            <button type="button" class="add-player-btn" onclick="addPlayerToTable(${index})">Hinzufügen</button>
+                            <button type="button" class="add-player-btn" onclick="addPlayersFromRawInput(${index})">Hinzufügen</button>
                         </div>
+                        <div id="playerHint_${index}" class="player-input-hint" aria-live="polite"></div>
                         <table class="players-table">
                             <thead>
                                 <tr>
@@ -1102,11 +1124,21 @@
             return null;
         }
 
-        function addPlayerToTable(index, refocusInput = false) {
+        function setPlayerInputHint(index, message = '', type = '') {
+            const hint = document.getElementById(`playerHint_${index}`);
+            if (!hint) return;
+            hint.textContent = message;
+            hint.classList.remove('warning', 'success');
+            if (type) {
+                hint.classList.add(type);
+            }
+        }
+
+        function addPlayerToTable(index, refocusInput = false, forcedName = null, suppressRender = false) {
             const input = document.getElementById(`playerInput_${index}`);
             if (!input) return;
-            const playerName = input.value.trim();
-            if (!playerName) return;
+            const playerName = (forcedName ?? input.value).trim();
+            if (!playerName) return false;
 
             const closest = findClosestKnownName(playerName);
             let finalPlayerName = playerName;
@@ -1125,16 +1157,61 @@
 
             const assignedDuplicate = findAssignedDuplicate(finalPlayerName);
             if (assignedDuplicate) {
-                alert(`Spieler "${assignedDuplicate}" ist bereits in einem Tisch erfasst.`);
+                setPlayerInputHint(index, `Hinweis: "${assignedDuplicate}" ist bereits einem Tisch zugewiesen.`, 'warning');
                 if (refocusInput) {
                     focusPlayerInput(index);
                 }
-                return;
+                return false;
             }
 
             tableConfigs[index].players.push(finalPlayerName);
+            if (!forcedName) {
+                input.value = '';
+            }
+            if (!suppressRender) {
+                renderTables();
+                setPlayerInputHint(index, `"${finalPlayerName}" hinzugefügt.`, 'success');
+            }
+            if (refocusInput) {
+                focusPlayerInput(index);
+            }
+            return true;
+        }
+
+        function addPlayersFromRawInput(index, refocusInput = false) {
+            const input = document.getElementById(`playerInput_${index}`);
+            if (!input) return;
+            const rawValue = input.value.trim();
+            if (!rawValue) return;
+
+            const splitNames = rawValue
+                .split(/[\n,;]+/)
+                .map(name => name.trim())
+                .filter(Boolean);
+
+            if (splitNames.length <= 1) {
+                addPlayerToTable(index, refocusInput);
+                return;
+            }
+
+            let addedCount = 0;
+            let skippedCount = 0;
+            splitNames.forEach((name) => {
+                const wasAdded = addPlayerToTable(index, false, name, true);
+                if (wasAdded) {
+                    addedCount += 1;
+                } else {
+                    skippedCount += 1;
+                }
+            });
             input.value = '';
             renderTables();
+            if (addedCount > 0) {
+                const skipText = skippedCount > 0 ? `, ${skippedCount} übersprungen` : '';
+                setPlayerInputHint(index, `${addedCount} Spieler hinzugefügt${skipText}.`, 'success');
+            } else {
+                setPlayerInputHint(index, 'Keine neuen Spieler hinzugefügt.', 'warning');
+            }
             if (refocusInput) {
                 focusPlayerInput(index);
             }
@@ -1211,7 +1288,7 @@
                 event.preventDefault();
                 const tableIndex = parseInt(idMatch[1], 10);
                 if (!Number.isNaN(tableIndex)) {
-                    addPlayerToTable(tableIndex, true);
+                    addPlayersFromRawInput(tableIndex, true);
                 }
             });
             const form = document.getElementById('tableBuilderForm');
@@ -1252,7 +1329,8 @@
             fetch(`/delete_tournament/${tournamentId}`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': CSRF_TOKEN
                 }
             })
             .then(response => response.json())

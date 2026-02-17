@@ -1,5 +1,11 @@
-from flask import Flask
+from flask import Flask, g, jsonify, request, session
 import os
+import time
+import uuid
+import secrets
+from collections import defaultdict, deque
+import logging
+import json
 from dotenv import load_dotenv
 from sqlalchemy.pool import NullPool
 from .db import db, migrate
@@ -7,6 +13,7 @@ from .db import db, migrate
 # Lade Umgebungsvariablen aus .env Datei
 load_dotenv()
 _LAST_CREATED_APP = None
+_RATE_LIMIT_BUCKETS = defaultdict(deque)
 
 
 def get_last_created_app():
@@ -61,6 +68,30 @@ def create_app():
     else:
         app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", f"sqlite:///{default_sqlite_path}")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config.setdefault("WTF_CSRF_ENABLED", os.environ.get("WTF_CSRF_ENABLED", "true").lower() == "true")
+    app.config.setdefault("CSRF_EXEMPT_ENDPOINTS", {"main.login"})
+    app.config.setdefault("RATE_LIMIT_ENABLED", os.environ.get("RATE_LIMIT_ENABLED", "true").lower() == "true")
+    app.config.setdefault("RATE_LIMIT_WINDOW_SECONDS", int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60")))
+    app.config.setdefault("RATE_LIMIT_MAX_REQUESTS", int(os.environ.get("RATE_LIMIT_MAX_REQUESTS", "90")))
+    app.config.setdefault(
+        "RATE_LIMITED_ENDPOINTS",
+        {
+            "main.start_tables",
+            "main.pair",
+            "main.save_results",
+            "main.next_round",
+            "main.end_tournament",
+            "main.delete_tournament",
+            "main.delete_player",
+        },
+    )
+    app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
+    app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
+    app.config.setdefault("SESSION_COOKIE_SECURE", os.environ.get("FLASK_ENV") == "production")
+    app.config.setdefault("APP_LOGIN_ENABLED", os.environ.get("APP_LOGIN_ENABLED", "false").lower() == "true")
+    app.config.setdefault("APP_LOGIN_USERNAME", os.environ.get("APP_LOGIN_USERNAME", "mtg"))
+    app.config.setdefault("APP_LOGIN_PASSWORD", os.environ.get("APP_LOGIN_PASSWORD", ""))
+    app.config.setdefault("APP_LOGIN_PASSWORD_HASH", os.environ.get("APP_LOGIN_PASSWORD_HASH", ""))
     if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite:"):
         app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"poolclass": NullPool}
 
@@ -81,6 +112,98 @@ def create_app():
         db.create_all()
         ensure_default_groups()
         ensure_default_cubes()
+
+    @app.context_processor
+    def inject_csrf_token():
+        token = session.get("csrf_token")
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session["csrf_token"] = token
+        return {"csrf_token": lambda: token}
+
+    @app.before_request
+    def security_before_request():
+        g.request_started_at = time.time()
+        g.request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        is_pytest = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+        if request.method in {"GET", "HEAD", "OPTIONS"}:
+            return None
+
+        if app.config.get("WTF_CSRF_ENABLED") and not app.testing and not is_pytest:
+            csrf_exempt = app.config.get("CSRF_EXEMPT_ENDPOINTS", set())
+            if request.endpoint in csrf_exempt:
+                return None
+            # Same-origin basic guard
+            origin = request.headers.get("Origin")
+            if origin and request.host_url.rstrip("/") not in origin:
+                return jsonify({"success": False, "code": "CSRF_ORIGIN_MISMATCH", "message": "Ungültige Herkunft der Anfrage."}), 403
+
+            token = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
+            expected = session.get("csrf_token")
+            if not expected or token != expected:
+                if request.blueprint == "main":
+                    return jsonify({"success": False, "code": "CSRF_TOKEN_INVALID", "message": "Sicherheitsprüfung fehlgeschlagen (CSRF)."}), 403
+
+        if (
+            app.config.get("RATE_LIMIT_ENABLED")
+            and not app.testing
+            and not is_pytest
+            and request.endpoint in app.config.get("RATE_LIMITED_ENDPOINTS", set())
+        ):
+            window = int(app.config.get("RATE_LIMIT_WINDOW_SECONDS", 60))
+            max_requests = int(app.config.get("RATE_LIMIT_MAX_REQUESTS", 90))
+            remote = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+            bucket_key = f"{request.endpoint}:{remote}"
+            now = time.time()
+            bucket = _RATE_LIMIT_BUCKETS[bucket_key]
+            while bucket and now - bucket[0] > window:
+                bucket.popleft()
+            if len(bucket) >= max_requests:
+                return jsonify(
+                    {
+                        "success": False,
+                        "code": "RATE_LIMIT_EXCEEDED",
+                        "message": "Zu viele Anfragen. Bitte kurz warten und erneut versuchen.",
+                    }
+                ), 429
+            bucket.append(now)
+
+        return None
+
+    @app.after_request
+    def security_after_request(response):
+        response.headers["X-Request-ID"] = getattr(g, "request_id", "-")
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"
+
+        try:
+            duration_ms = int((time.time() - getattr(g, "request_started_at", time.time())) * 1000)
+            app.logger.info(
+                json.dumps(
+                    {
+                        "event": "http_request",
+                        "request_id": getattr(g, "request_id", None),
+                        "method": request.method,
+                        "path": request.path,
+                        "status_code": response.status_code,
+                        "duration_ms": duration_ms,
+                        "tournament_id": session.get("tournament_id"),
+                    }
+                )
+            )
+        except Exception:
+            pass
+        return response
+
+    @app.route("/healthz", methods=["GET"])
+    def healthz():
+        return jsonify({"status": "ok"}), 200
+
+    if not app.logger.handlers:
+        logging.basicConfig(level=logging.INFO)
     _LAST_CREATED_APP = app
     
     return app

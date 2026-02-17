@@ -71,11 +71,11 @@ def get_group_name(group_id):
 
 def _generate_unique_group_id(name):
     base = slugify_group_name(name)
-    if TournamentGroup.query.get(base) is None:
+    if db.session.get(TournamentGroup, base) is None:
         return base
     while True:
         candidate = f"{base}-{uuid.uuid4().hex[:4]}"
-        if TournamentGroup.query.get(candidate) is None:
+        if db.session.get(TournamentGroup, candidate) is None:
             return candidate
 
 
@@ -116,7 +116,7 @@ def rename_group(group_id, new_name):
         return False, "Gruppenname darf maximal 80 Zeichen lang sein."
 
     ensure_default_groups()
-    row = TournamentGroup.query.get(target_id)
+    row = db.session.get(TournamentGroup, target_id)
     if row is None:
         return False, "Gruppe wurde nicht gefunden."
 
@@ -158,7 +158,7 @@ def delete_group(group_id):
     if target_id == DEFAULT_GROUP_ID:
         return False, "Die Standardgruppe kann nicht gelöscht werden."
 
-    row = TournamentGroup.query.get(target_id)
+    row = db.session.get(TournamentGroup, target_id)
     if row is None:
         return False, "Gruppe wurde nicht gefunden."
     db.session.delete(row)

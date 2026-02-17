@@ -61,6 +61,36 @@ class GroupManagementTests(unittest.TestCase):
             self.assertIn("Liga Winter 25/26", html)
             self.assertIn("Liga Sommer 26", html)
 
+    def test_can_rename_group_and_reject_duplicate_name(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+
+            self._create_group(client, "Liga Winter 25/26")
+            self._create_group(client, "Liga Sommer 26")
+            winter_id = self._find_group_id_by_name("Liga Winter 25/26")
+            self.assertTrue(winter_id)
+
+            rename_response = client.post(
+                "/groups/rename",
+                data={"group_id": winter_id, "group_name": "Liga Herbst 26"},
+                follow_redirects=True,
+            )
+            self.assertEqual(rename_response.status_code, 200)
+            renamed_groups = load_tournament_groups()
+            names = {group["name"] for group in renamed_groups}
+            self.assertIn("Liga Herbst 26", names)
+            self.assertNotIn("Liga Winter 25/26", names)
+
+            duplicate_response = client.post(
+                "/groups/rename",
+                data={"group_id": winter_id, "group_name": "Liga Sommer 26"},
+                follow_redirects=True,
+            )
+            self.assertEqual(duplicate_response.status_code, 200)
+            html = duplicate_response.get_data(as_text=True)
+            self.assertIn("existiert bereits", html)
+
     def test_delete_group_reassigns_existing_tournaments_to_default(self):
         with temp_cwd():
             app = create_app()
@@ -101,6 +131,27 @@ class GroupManagementTests(unittest.TestCase):
             home = client.get("/")
             self.assertEqual(home.status_code, 200)
             self.assertIn("Unkategorisiert", home.get_data(as_text=True))
+
+    def test_default_group_cannot_be_deleted_or_renamed(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+
+            delete_response = client.post(
+                "/groups/delete",
+                data={"group_id": DEFAULT_GROUP_ID},
+                follow_redirects=True,
+            )
+            self.assertEqual(delete_response.status_code, 200)
+            self.assertIn("kann nicht gelöscht werden", delete_response.get_data(as_text=True))
+
+            rename_response = client.post(
+                "/groups/rename",
+                data={"group_id": DEFAULT_GROUP_ID, "group_name": "Neu"},
+                follow_redirects=True,
+            )
+            self.assertEqual(rename_response.status_code, 200)
+            self.assertIn("kann nicht umbenannt werden", rename_response.get_data(as_text=True))
 
 
 if __name__ == "__main__":

@@ -53,7 +53,13 @@ Flask-Webapp zur Verwaltung von MTG-Draftturnieren mit Multi-Table-Builder, Grup
    ```
    FLASK_SECRET_KEY=<zufaelliger-langer-key>
    DATABASE_URL=postgresql+psycopg://postgres:<passwort>@localhost:5432/mtg_draft_app
+   APP_LOGIN_ENABLED=true
+   APP_LOGIN_USERNAME=mtg
+   APP_LOGIN_PASSWORD=<starkes-passwort>
    ```
+   Fuer einen schlanken Online-Betrieb (du + Freunde) siehe auch:
+   - `.env.friends-prod.example`
+   - `docs/friends_vps_deploy.md`
 
 6. Migrationen anwenden:
    ```
@@ -88,6 +94,22 @@ Die App nutzt SQLAlchemy + Flask-Migrate.
 - Primärziel ist PostgreSQL über `DATABASE_URL`.
 - Legacy-Dateien in `data/`, `tournament_data/`, `tournament_results/` können lokal noch als Fallback/Archiv bestehen.
 
+### Betriebsregel: Source of Truth
+
+- Primäre Wahrheit ist die Datenbank (PostgreSQL/SQLite via SQLAlchemy).
+- Legacy-Dateien dienen nur noch als Fallback/Archiv und für Kompatibilität.
+- Turnierstatus gilt als beendet, wenn mindestens eines dieser Signale vorliegt:
+  - DB-Status `tournaments.status = ended`
+  - `data/<tournament_id>/end_time.txt` vorhanden
+  - Archivdatei in `tournament_results/` vorhanden
+- Bei Konflikten hat der DB-Status Vorrang.
+
+### Deterministisches Pairing (optional)
+
+- Für reproduzierbare Pairings im Betrieb/Debugging kann ein fixer Seed gesetzt werden:
+  - `MTG_PAIRING_SEED=12345`
+- Ohne diese Variable verwendet die App einen deterministischen Seed pro Turnier/Stage/Runde.
+
 ### DB-Inhalt prüfen
 
 Mit `psql`:
@@ -120,6 +142,65 @@ MTG-Draft-App/
 - `FLASK_SECRET_KEY` geheim halten, nie committen
 - `.env` bleibt lokal und ist per `.gitignore` ausgeschlossen
 - Produktionsumgebung über echte Env-Variablen konfigurieren
+
+## Qualität & Betrieb
+
+### CI / Quality Gate
+
+- GitHub Actions Workflow in `.github/workflows/ci.yml`
+- Enthält:
+  - `python -m pytest -q --cov=app --cov-fail-under=70`
+  - Fokus-Gate für kritische Module (`app.routes`, `app.player_stats`, `app.services`)
+  - kritischen Smoke-Test für Start -> Save -> Next Round -> End
+  - Migrations-Smoketest via `flask --app run.py db upgrade` gegen frische SQLite-DB
+  - Backup/Restore-Drill via `python scripts/sqlite_backup_restore_drill.py`
+
+### Staging und Deployment-Basis
+
+- Staging sollte dieselbe Migrationskette wie Produktion nutzen.
+- Vor jedem Deploy:
+  - Backup erstellen
+  - `flask --app run.py db upgrade`
+  - `GET /healthz` prüfen
+- Release-/Rollback-Checkliste: `docs/release_rollback_checklist.md`
+- VPS-Runbook fuer Friends-Prod: `docs/friends_vps_deploy.md`
+
+### Observability
+
+- Jede Request bekommt eine `X-Request-ID` Response-Header.
+- Strukturierte HTTP-Logs enthalten Methode, Pfad, Status, Dauer und `tournament_id`.
+- Healthcheck-Endpoint: `GET /healthz` erwartet `{"status": "ok"}`.
+
+### Backup / Recovery (PostgreSQL)
+
+Backup erstellen:
+```bash
+pg_dump -h localhost -U postgres -d mtg_draft_app -F c -f mtg_draft_app.backup
+```
+
+Backup einspielen (in leere DB):
+```bash
+createdb -h localhost -U postgres mtg_draft_app_restore
+pg_restore -h localhost -U postgres -d mtg_draft_app_restore --clean --if-exists mtg_draft_app.backup
+```
+
+Nach Restore:
+```bash
+flask --app run.py db upgrade
+python run.py
+```
+
+Automatisierbar per Skripten:
+- Backup: `bash scripts/postgres_backup.sh`
+- Restore-Smoke: `bash scripts/postgres_restore_smoke.sh backups/<file>.dump`
+
+### Security-Baseline (Public-Betrieb)
+
+- CSRF-Schutz für mutierende Requests aktiv.
+- Session-Cookies mit `HttpOnly`, `SameSite=Lax`, `Secure` in Production.
+- Security-Header (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy).
+- Basis-Rate-Limit auf kritischen mutierenden Endpunkten.
+- Optional/empfohlen für Friends-Prod: App-Login via `APP_LOGIN_*` Variablen.
 
 ## Lizenz
 

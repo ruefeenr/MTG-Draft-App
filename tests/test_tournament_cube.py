@@ -6,6 +6,7 @@ import unittest
 from contextlib import contextmanager
 
 from app import create_app
+from app.models import PlayerPowerNine
 from app.player_stats import get_player_statistics
 from app.tournament_groups import (
     DEFAULT_CUBE_ID,
@@ -305,6 +306,70 @@ class TournamentCubeTests(unittest.TestCase):
             meta = load_tournament_meta()
             self.assertEqual(meta[tournament_id]["cube_id"], "vintage")
             self.assertEqual(meta[tournament_id]["cube_name"], "Vintage")
+
+    def test_can_rename_custom_cube_and_reject_duplicate_name(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+            client.post("/cubes/create", data={"cube_name": "Legacy Cube"}, follow_redirects=True)
+            client.post("/cubes/create", data={"cube_name": "Modern Cube"}, follow_redirects=True)
+
+            cubes = load_allowed_cubes()
+            legacy = next(c for c in cubes if c["name"] == "Legacy Cube")
+            rename_response = client.post(
+                "/cubes/rename",
+                data={"cube_id": legacy["id"], "cube_name": "Legacy Reloaded"},
+                follow_redirects=True,
+            )
+            self.assertEqual(rename_response.status_code, 200)
+            self.assertIn("Legacy Reloaded", rename_response.get_data(as_text=True))
+
+            duplicate_response = client.post(
+                "/cubes/rename",
+                data={"cube_id": legacy["id"], "cube_name": "Modern Cube"},
+                follow_redirects=True,
+            )
+            self.assertEqual(duplicate_response.status_code, 200)
+            self.assertIn("existiert bereits", duplicate_response.get_data(as_text=True))
+
+    def test_default_cube_cannot_be_deleted_or_renamed(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+
+            delete_response = client.post(
+                "/cubes/delete",
+                data={"cube_id": "vintage"},
+                follow_redirects=True,
+            )
+            self.assertEqual(delete_response.status_code, 200)
+            self.assertIn("kann nicht gelöscht werden", delete_response.get_data(as_text=True))
+
+            rename_response = client.post(
+                "/cubes/rename",
+                data={"cube_id": "vintage", "cube_name": "Vintage 2"},
+                follow_redirects=True,
+            )
+            self.assertEqual(rename_response.status_code, 200)
+            self.assertIn("kann nicht umbenannt werden", rename_response.get_data(as_text=True))
+
+    def test_non_vintage_power_nine_post_is_noop_and_does_not_persist_rows(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+            self._start_tournament(client, "pauper")
+
+            response = client.post(
+                "/api/player/Alice/power_nine",
+                json={"Black Lotus": True, "Time Walk": True},
+            )
+            self.assertEqual(response.status_code, 200)
+            payload = response.get_json()
+            self.assertTrue(payload["success"])
+            self.assertIn("nur in Vintage", payload["message"])
+
+            with app.app_context():
+                self.assertEqual(PlayerPowerNine.query.count(), 0)
 
 
 if __name__ == "__main__":

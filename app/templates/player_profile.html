@@ -661,6 +661,7 @@
     </div>
     
     <script>
+        const CSRF_TOKEN = "{{ csrf_token() }}";
         let playerToDelete = null;
         
         function showDeleteConfirmation(playerName) {
@@ -708,7 +709,8 @@
             fetch(`/player/${encodeURIComponent(playerName)}/delete`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': CSRF_TOKEN
                 }
             })
             .then(response => response.json())

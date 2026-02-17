@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 
@@ -24,6 +24,10 @@ _FALLBACK_CUBES = {
     "100_ornithopter": "100 Ornithopter",
     "treat_yourself": "Treat yourself",
 }
+
+
+def _utcnow_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _call_with_app_context(func, *args, **kwargs):
@@ -199,7 +203,7 @@ def load_tournament_meta():
                     "group_name": get_group_name(group_id),
                     "cube_id": cube_id,
                     "cube_name": get_cube_name(cube_id),
-                    "created_at": payload.get("created_at") or datetime.utcnow().isoformat(),
+                    "created_at": payload.get("created_at") or _utcnow_iso(),
                 }
         except Exception:
             pass
@@ -211,7 +215,7 @@ def load_tournament_meta():
             "group_name": get_group_name(row.group_id),
             "cube_id": row.cube_id,
             "cube_name": get_cube_name(row.cube_id),
-            "created_at": row.created_at.isoformat() if row.created_at else datetime.utcnow().isoformat(),
+            "created_at": row.created_at.isoformat() if row.created_at else _utcnow_iso(),
         }
     if changed:
         save_tournament_meta(data)
@@ -241,7 +245,7 @@ def set_tournament_group(tournament_id, group_id, cube_id=DEFAULT_CUBE_ID):
         "group_name": get_group_name(normalized_group),
         "cube_id": normalized_cube,
         "cube_name": get_cube_name(normalized_cube),
-        "created_at": meta.get(tournament_id, {}).get("created_at") or datetime.utcnow().isoformat(),
+        "created_at": meta.get(tournament_id, {}).get("created_at") or _utcnow_iso(),
     }
     save_tournament_meta(meta)
     return True

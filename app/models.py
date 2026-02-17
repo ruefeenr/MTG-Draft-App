@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from sqlalchemy import UniqueConstraint, CheckConstraint
@@ -10,13 +10,17 @@ def _uuid_str():
     return str(uuid.uuid4())
 
 
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
 class Player(db.Model):
     __tablename__ = "players"
 
     id = db.Column(db.String(36), primary_key=True, default=_uuid_str)
     name = db.Column(db.String(80), nullable=False, unique=True)
     normalized_name = db.Column(db.String(120), nullable=False, unique=True, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
 
 class TournamentGroup(db.Model):
@@ -26,7 +30,7 @@ class TournamentGroup(db.Model):
     name = db.Column(db.String(80), nullable=False, unique=True)
     normalized_name = db.Column(db.String(120), nullable=False, unique=True, index=True)
     is_system = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
 
 class Cube(db.Model):
@@ -36,7 +40,7 @@ class Cube(db.Model):
     name = db.Column(db.String(80), nullable=False, unique=True)
     normalized_name = db.Column(db.String(120), nullable=False, unique=True, index=True)
     is_system = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
 
 class Tournament(db.Model):
@@ -45,7 +49,7 @@ class Tournament(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=_uuid_str)
     status = db.Column(db.String(16), nullable=False, default="running")
     current_round = db.Column(db.Integer, nullable=False, default=1)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
     ended_at = db.Column(db.DateTime, nullable=True)
 
     group_id = db.Column(db.String(64), db.ForeignKey("tournament_groups.id"), nullable=False)
@@ -105,7 +109,7 @@ class Round(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     tournament_id = db.Column(db.String(36), db.ForeignKey("tournaments.id"), nullable=False, index=True)
     number = db.Column(db.Integer, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     tournament = db.relationship("Tournament", back_populates="rounds")
     matches = db.relationship("Match", back_populates="round", cascade="all, delete-orphan")

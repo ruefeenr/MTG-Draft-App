@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, flash
+from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, flash, current_app
 import uuid
 import random
 import os
@@ -6,7 +6,11 @@ import csv
 from datetime import datetime
 from collections import defaultdict
 import json
+import hashlib
+import hmac
+from werkzeug.security import check_password_hash
 from .services.players import get_or_create_player, list_player_names
+from .services.tournaments import set_tournament_status
 from .models import Match, Player, PlayerPowerNine, Round, Tournament
 from .db import db
 import unicodedata
@@ -37,6 +41,42 @@ from .tournament_groups import (
 
 main = Blueprint('main', __name__)
 
+TOURNAMENT_STATUS_RUNNING = "running"
+TOURNAMENT_STATUS_ENDED = "ended"
+AUTH_EXEMPT_ENDPOINTS = {"main.login", "main.logout", "static", "healthz"}
+
+
+def _is_authenticated():
+    return bool(session.get("is_authenticated"))
+
+
+def _is_login_password_valid(candidate_password):
+    expected_hash = current_app.config.get("APP_LOGIN_PASSWORD_HASH", "")
+    expected_plain = current_app.config.get("APP_LOGIN_PASSWORD", "")
+    if expected_hash:
+        return check_password_hash(expected_hash, candidate_password or "")
+    if expected_plain:
+        return hmac.compare_digest(expected_plain, candidate_password or "")
+    return False
+
+
+@main.before_app_request
+def require_authentication():
+    if not current_app.config.get("APP_LOGIN_ENABLED"):
+        return None
+
+    endpoint = request.endpoint or ""
+    if endpoint in AUTH_EXEMPT_ENDPOINTS:
+        return None
+    if endpoint.startswith("static"):
+        return None
+    if _is_authenticated():
+        return None
+
+    if request.method == "GET":
+        return redirect(url_for("main.login", next=request.full_path if request.query_string else request.path))
+    return jsonify({"success": False, "code": "AUTH_REQUIRED", "message": "Login erforderlich."}), 401
+
 def is_valid_tournament_id(value):
     """Nur UUIDs als gültige Turnier-IDs akzeptieren."""
     if not value or not isinstance(value, str):
@@ -46,6 +86,33 @@ def is_valid_tournament_id(value):
         return str(parsed) == value.lower()
     except (ValueError, AttributeError, TypeError):
         return False
+
+
+def _tournament_error_response(code, message, status_code=400, as_json=True, redirect_round=None):
+    if as_json:
+        return jsonify({"success": False, "code": code, "message": message}), status_code
+    flash(message)
+    if redirect_round is not None:
+        return redirect(url_for("main.show_round", round_number=redirect_round))
+    return redirect(url_for("main.index"))
+
+
+def _require_mutable_tournament(tournament_id, *, as_json=True):
+    if not tournament_id:
+        return _tournament_error_response(
+            "NO_ACTIVE_TOURNAMENT",
+            "Kein aktives Turnier gefunden.",
+            status_code=400,
+            as_json=as_json,
+        )
+    if check_tournament_status(tournament_id):
+        return _tournament_error_response(
+            "TOURNAMENT_ENDED",
+            "Das Turnier wurde bereits beendet und ist schreibgeschützt.",
+            status_code=409,
+            as_json=as_json,
+        )
+    return None
 
 def is_player_marked(player_name):
     """Prüft, ob ein Spieler als Dropout markiert ist (anhand der Session)"""
@@ -316,6 +383,47 @@ def render_index_page(
         selected_group_filter=group_filter or "all",
     )
 
+
+@main.route("/login", methods=["GET", "POST"])
+def login():
+    if not current_app.config.get("APP_LOGIN_ENABLED"):
+        return redirect(url_for("main.index"))
+
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        expected_username = current_app.config.get("APP_LOGIN_USERNAME", "mtg")
+
+        if username == expected_username and _is_login_password_valid(password):
+            session["is_authenticated"] = True
+            session["auth_user"] = username
+            next_url = request.args.get("next") or request.form.get("next") or url_for("main.index")
+            if next_url.startswith("http://") or next_url.startswith("https://"):
+                next_url = url_for("main.index")
+            return redirect(next_url)
+
+        return render_template(
+            "login.html",
+            error="Ungültige Login-Daten.",
+            login_username_hint=expected_username,
+            next_url=request.args.get("next") or request.form.get("next") or "",
+        )
+
+    return render_template(
+        "login.html",
+        error=None,
+        login_username_hint=current_app.config.get("APP_LOGIN_USERNAME", "mtg"),
+        next_url=request.args.get("next", ""),
+    )
+
+
+@main.route("/logout", methods=["POST"])
+def logout():
+    session.pop("is_authenticated", None)
+    session.pop("auth_user", None)
+    return redirect(url_for("main.login"))
+
+
 @main.route("/", methods=["GET"])
 def index():
     # Aufräumen nach älteren fehlerhaften States (z.B. session["tournament_id"] = "players")
@@ -514,6 +622,29 @@ def _validate_players_list(raw_players):
 
     return players, None
 
+
+def _get_pairing_seed(tournament_id, stage, round_number=None):
+    """Erzeugt einen deterministischen Seed pro Turnier/Stage/Runde.
+
+    Optional überschreibbar über ENV `MTG_PAIRING_SEED`.
+    """
+    env_seed = os.environ.get("MTG_PAIRING_SEED")
+    if env_seed:
+        try:
+            return int(env_seed)
+        except ValueError:
+            pass
+    token = f"{tournament_id}|{stage}|{round_number or 0}"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return int(digest[:16], 16)
+
+
+def _stable_shuffle(values, tournament_id, stage, round_number=None):
+    rng = random.Random(_get_pairing_seed(tournament_id, stage, round_number))
+    shuffled = list(values)
+    rng.shuffle(shuffled)
+    return shuffled
+
 def _create_started_tournament(players, table_size, group_id, cube_id, set_session_state=True):
     """
     Erstellt ein laufendes Turnier inkl. Runde 1 aus genau einem Tischblock.
@@ -527,8 +658,7 @@ def _create_started_tournament(players, table_size, group_id, cube_id, set_sessi
     data_dir = os.path.join("data", tournament_id)
     os.makedirs(data_dir, exist_ok=True)
 
-    shuffled = players.copy()
-    random.shuffle(shuffled)
+    shuffled = _stable_shuffle(players, tournament_id=tournament_id, stage="start-table", round_number=1)
 
     group_key = f"{table_size}-1"
     player_groups = {group_key: players.copy()}
@@ -609,7 +739,7 @@ def _create_started_tournament(players, table_size, group_id, cube_id, set_sessi
 
 def _sync_round_to_db(tournament_id, round_number, match_list):
     """Spiegelt eine komplette Runde aus Match-Dicts in die DB."""
-    tournament = Tournament.query.get(tournament_id)
+    tournament = db.session.get(Tournament, tournament_id)
     if tournament is None:
         return
 
@@ -734,7 +864,6 @@ def start_tables():
             }
         )
 
-    random.seed(42)
     created_tournaments = []
     for table in normalized_tables:
         created_tournaments.append(
@@ -832,10 +961,8 @@ def pair():
         # Wähle die erste gültige Gruppierung
         selected_grouping = groupings[0]
         
-        # Mische die Spieler
-        # Setze einen konstanten Seed für Reproduzierbarkeit
-        random.seed(42)
-        random.shuffle(players)
+        # Mische die Spieler deterministisch pro Turnier/Stage
+        players = _stable_shuffle(players, tournament_id=tournament_id, stage="pair-initial", round_number=1)
         
         pairings = []
         match_list = []
@@ -868,8 +995,7 @@ def pair():
             start += group_size
 
             # Erstelle Matches für diese Gruppe
-            shuffled = group.copy()
-            random.shuffle(shuffled)
+            shuffled = _stable_shuffle(group, tournament_id=tournament_id, stage=f"group-{composite_key}", round_number=1)
 
             for i in range(0, len(shuffled) - 1, 2):
                 p1 = shuffled[i]
@@ -938,16 +1064,10 @@ def ensure_data_directory():
 
 @main.route("/save_results", methods=["POST"])
 def save_results():
-    tournament_id = session.get("tournament_id", "unknown")
-    if not tournament_id:
-        return jsonify({"success": False, "message": "Kein aktives Turnier gefunden."}), 400
-    
-    # Prüfe, ob das Turnier bereits beendet wurde
-    tournament_ended = check_tournament_status(tournament_id)
-    
-    if tournament_ended:
-        # Wenn das Turnier bereits beendet ist, gebe eine Fehlermeldung zurück
-        return jsonify({"success": False, "message": "Das Turnier wurde bereits beendet."}), 400
+    tournament_id = session.get("tournament_id")
+    guard = _require_mutable_tournament(tournament_id, as_json=True)
+    if guard is not None:
+        return guard
     is_vintage = is_vintage_tournament(tournament_id)
 
     print("\n\n=== SAVE_RESULTS AUFGERUFEN ===")
@@ -1120,15 +1240,62 @@ def save_results():
             return jsonify({"success": False, "message": f"Fehler beim Schreiben der Rundendatei: {str(e)}"}), 500
 
         # Erst nach erfolgreicher Rundendatei-Aktualisierung in results.csv speichern
+        # Idempotent pro (Turnier, Runde, Tisch): ein erneutes Speichern überschreibt
+        # den bestehenden Eintrag statt Doppelzeilen zu erzeugen.
         results_file = os.path.join("tournament_data", "results.csv")
         os.makedirs("tournament_data", exist_ok=True)
-        file_exists = os.path.isfile(results_file)
         try:
-            with open(results_file, "a", newline="", encoding="utf-8") as csvfile:
-                writer = csv.writer(csvfile)
-                if not file_exists:
-                    writer.writerow(["Tournament", "Timestamp", "Table", "Player 1", "Score 1", "Player 2", "Score 2", "Draws"])
-                writer.writerow([tournament_id, datetime.now().isoformat(), table, player1, score1, player2, score2, score_draws])
+            normalized_rows = []
+            fieldnames = [
+                "Tournament",
+                "Timestamp",
+                "Round",
+                "Table",
+                "Player 1",
+                "Score 1",
+                "Player 2",
+                "Score 2",
+                "Draws",
+            ]
+            if os.path.isfile(results_file):
+                with open(results_file, "r", newline="", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    existing_fieldnames = reader.fieldnames or []
+                    if existing_fieldnames:
+                        for name in existing_fieldnames:
+                            if name not in fieldnames:
+                                fieldnames.append(name)
+                    for row in reader:
+                        normalized = {name: row.get(name, "") for name in fieldnames}
+                        normalized_rows.append(normalized)
+
+            normalized_rows = [
+                row
+                for row in normalized_rows
+                if not (
+                    row.get("Tournament") == tournament_id
+                    and str(row.get("Table", "")) == str(table)
+                    and str(row.get("Round", "")) == str(current_round)
+                )
+            ]
+            normalized_rows.append(
+                {
+                    "Tournament": tournament_id,
+                    "Timestamp": datetime.now().isoformat(),
+                    "Round": str(current_round),
+                    "Table": str(table),
+                    "Player 1": player1,
+                    "Score 1": str(score1),
+                    "Player 2": player2,
+                    "Score 2": str(score2),
+                    "Draws": str(score_draws),
+                }
+            )
+
+            with open(results_file, "w", newline="", encoding="utf-8") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(normalized_rows)
             print("Ergebnis in results.csv gespeichert")
         except Exception as e:
             print(f"Fehler beim Speichern in results.csv: {e}")
@@ -1314,28 +1481,26 @@ def is_round_unplayed(round_file):
 def next_round():
     tournament_id = session.get("tournament_id")
     if not tournament_id:
-        return redirect(url_for("main.index"))
-    
-    # Prüfe, ob das Turnier bereits beendet wurde - konsistente Prüfung
-    tournament_ended = check_tournament_status(tournament_id)
-    
-    if tournament_ended:
-        # Wenn das Turnier bereits beendet ist, leite zur letzten Runde um
+        return _tournament_error_response("NO_ACTIVE_TOURNAMENT", "Kein aktives Turnier gefunden.", as_json=False)
+
+    if check_tournament_status(tournament_id):
         data_dir = os.path.join("data", tournament_id)
         rounds_dir = os.path.join(data_dir, "rounds")
+        round_numbers = []
         if os.path.exists(rounds_dir):
-            round_numbers = []
             for filename in os.listdir(rounds_dir):
                 if filename.startswith("round_") and filename.endswith(".csv"):
                     try:
                         round_numbers.append(int(filename.replace("round_", "").replace(".csv", "")))
                     except ValueError:
                         continue
-            if round_numbers:
-                return redirect(url_for("main.show_round", round_number=max(round_numbers)))
-            return redirect(url_for("main.index"))
-        else:
-            return redirect(url_for("main.index"))
+        latest_round = max(round_numbers) if round_numbers else None
+        return _tournament_error_response(
+            "TOURNAMENT_ENDED",
+            "Nächste Runde nicht möglich: Das Turnier ist bereits beendet.",
+            as_json=False,
+            redirect_round=latest_round,
+        )
 
     data_dir = os.path.join("data", tournament_id)
     rounds_dir = os.path.join(data_dir, "rounds")
@@ -1574,7 +1739,7 @@ def continue_tournament():
 def end_tournament():
     tournament_id = session.get("tournament_id")
     if not tournament_id:
-        return redirect(url_for("main.index"))
+        return _tournament_error_response("NO_ACTIVE_TOURNAMENT", "Kein aktives Turnier gefunden.", as_json=False)
     
     # Berechne den finalen Leaderboard
     data_dir = os.path.join("data", tournament_id)
@@ -1589,6 +1754,11 @@ def end_tournament():
                 except ValueError:
                     continue
         total_rounds = max(round_numbers) if round_numbers else 0
+        if check_tournament_status(tournament_id):
+            flash("Turnier ist bereits beendet. Es wurden keine weiteren Änderungen vorgenommen.")
+            if total_rounds > 0:
+                return redirect(url_for("main.show_round", round_number=total_rounds))
+            return redirect(url_for("main.index"))
 
         # Nur vollständig abgeschlossene letzte Runde darf als final gewertet werden.
         # Ausnahme: eine versehentlich eröffnete, noch ungespielte letzte Runde
@@ -1641,7 +1811,7 @@ def end_tournament():
     os.makedirs(tournament_results_dir, exist_ok=True)
     
     results_file = os.path.join(tournament_results_dir, f"{tournament_id}_results.json")
-    with open(results_file, "w") as f:
+    with open(results_file, "w", encoding="utf-8") as f:
         json.dump({
             "tournament_data": tournament_data,
             "final_leaderboard": final_leaderboard
@@ -1650,11 +1820,7 @@ def end_tournament():
     # Speichere den Status des Turniers in der Session
     # Entferne nicht die tournament_id, damit der Benutzer zurückkehren kann
     session["tournament_ended"] = True
-    tournament_row = Tournament.query.get(tournament_id)
-    if tournament_row:
-        tournament_row.status = "ended"
-        tournament_row.ended_at = datetime.utcnow()
-        db.session.commit()
+    set_tournament_status(tournament_id, TOURNAMENT_STATUS_ENDED)
     
     # Erstelle eine end_time.txt-Datei im Turnierverzeichnis für konsistente Endstatus-Prüfung
     end_time_file = os.path.join(data_dir, "end_time.txt")
@@ -2338,17 +2504,24 @@ def check_tournament_status(tournament_id):
     if not tournament_id:
         return False
     
-    # Prüfe persistenten Status auf Dateiebene
+    # Primärer Status aus der DB (Source of Truth)
+    db_row = db.session.get(Tournament, tournament_id)
+    if db_row is not None:
+        db_tournament_ended = (db_row.status == TOURNAMENT_STATUS_ENDED)
+        if session.get("tournament_id") == tournament_id:
+            session["tournament_ended"] = db_tournament_ended
+        if db_tournament_ended:
+            return True
+
+    # Legacy-/Datei-Indikatoren als Kompatibilitätsfallback
     data_dir = os.path.join("data", tournament_id)
     end_time_file = os.path.join(data_dir, "end_time.txt")
     file_tournament_ended = os.path.exists(end_time_file)
     results_file = os.path.join("tournament_results", f"{tournament_id}_results.json")
     archived_tournament_ended = os.path.exists(results_file)
-    db_row = Tournament.query.get(tournament_id)
-    db_tournament_ended = bool(db_row and db_row.status == "ended")
     
     # Session-Status darf nur für das AKTUELLE Turnier gelten, sonst entstehen False-Positives.
-    tournament_ended = file_tournament_ended or archived_tournament_ended or db_tournament_ended
+    tournament_ended = file_tournament_ended or archived_tournament_ended
 
     if session.get("tournament_id") == tournament_id:
         session["tournament_ended"] = tournament_ended

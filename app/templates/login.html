@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login - MTG League Manager</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #f6f8fc 0%, #e9f0f7 100%);
+            color: #1f2937;
+        }
+        .card {
+            width: 100%;
+            max-width: 420px;
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+            padding: 28px;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 1.7rem;
+        }
+        p {
+            margin: 0 0 18px 0;
+            color: #4b5563;
+        }
+        .field {
+            margin-bottom: 12px;
+        }
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+        input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+        button {
+            width: 100%;
+            margin-top: 10px;
+            border: none;
+            border-radius: 8px;
+            padding: 11px 14px;
+            font-size: 1rem;
+            cursor: pointer;
+            background: linear-gradient(135deg, #1f2937 0%, #334155 100%);
+            color: #fff;
+            font-weight: 600;
+        }
+        .error {
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .hint {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Login</h1>
+        <p>Bitte mit den Zugangsdaten für eure League anmelden.</p>
+
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('main.login', next=next_url) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ next_url }}">
+            <div class="field">
+                <label for="username">Benutzername</label>
+                <input id="username" name="username" type="text" value="{{ login_username_hint }}" autocomplete="username" required>
+            </div>
+            <div class="field">
+                <label for="password">Passwort</label>
+                <input id="password" name="password" type="password" autocomplete="current-password" required>
+            </div>
+            <button type="submit">Anmelden</button>
+        </form>
+        <div class="hint">Hinweis: Zugang wird per Server-Umgebungsvariablen konfiguriert.</div>
+    </div>
+</body>
+</html>

@@ -134,6 +134,7 @@
         <div class="card">
             <h2>Neue Gruppe erstellen</h2>
             <form method="POST" action="{{ url_for('main.create_group') }}" class="new-group-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="text" name="group_name" maxlength="80" required placeholder="z.B. Liga Winter 25/26">
                 <button type="submit" class="btn">Gruppe erstellen</button>
             </form>
@@ -149,11 +150,13 @@
                         <span class="hint">Standardgruppe (nicht umbenennbar/löschbar)</span>
                     {% else %}
                         <form method="POST" action="{{ url_for('main.rename_group') }}" class="group-row">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="group_id" value="{{ group.id }}">
                             <input type="text" name="group_name" maxlength="80" required value="{{ group.name }}">
                             <button type="submit" class="btn">Umbenennen</button>
                         </form>
                         <form method="POST" action="{{ url_for('main.delete_group') }}" onsubmit="return confirm('Gruppe wirklich löschen? Zugeordnete Turniere fallen auf Unkategorisiert zurück.');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="group_id" value="{{ group.id }}">
                             <button type="submit" class="btn btn-delete">Löschen</button>
                         </form>

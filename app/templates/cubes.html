@@ -134,6 +134,7 @@
         <div class="card">
             <h2>Neuen Cube erstellen</h2>
             <form method="POST" action="{{ url_for('main.create_cube') }}" class="new-cube-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="text" name="cube_name" maxlength="80" required placeholder="z.B. Legacy Cube">
                 <button type="submit" class="btn">Cube erstellen</button>
             </form>
@@ -149,11 +150,13 @@
                         <span class="hint">Standard-Cube (nicht umbenennbar/löschbar)</span>
                     {% else %}
                         <form method="POST" action="{{ url_for('main.rename_cube') }}" class="cube-row">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="cube_id" value="{{ cube.id }}">
                             <input type="text" name="cube_name" maxlength="80" required value="{{ cube.name }}">
                             <button type="submit" class="btn">Umbenennen</button>
                         </form>
                         <form method="POST" action="{{ url_for('main.delete_cube') }}" onsubmit="return confirm('Cube wirklich löschen? Zugeordnete Turniere fallen auf Vintage zurück.');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="cube_id" value="{{ cube.id }}">
                             <button type="submit" class="btn btn-delete">Löschen</button>
                         </form>

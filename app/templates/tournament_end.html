@@ -140,11 +140,37 @@
             margin: 20px 0;
             font-size: 3em;
         }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid rgba(185, 28, 28, 0.2);
+        }
+
+        .status-note {
+            margin-top: 12px;
+            color: #7f1d1d;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
     <div class="tournament-header">
         <h1>🏆 Turnier Beendet 🏆</h1>
+        <div class="status-pill">Status: beendet</div>
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages|unique %}
+                    <div class="status-note">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
         <div class="tournament-info">
             <p>Beendet am: {{ tournament_data.end_date }}</p>
             <p>Gespielte Runden: {{ tournament_data.total_rounds }}</p>
