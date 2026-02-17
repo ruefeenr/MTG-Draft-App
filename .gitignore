@@ -32,11 +32,13 @@ ENV/
 
 # Logs
 *.log
+.coverage
 
 # Local data
 data/
 *.csv
 *.json
+ci_backup_*.db
 
 # Environment variables
 .env
