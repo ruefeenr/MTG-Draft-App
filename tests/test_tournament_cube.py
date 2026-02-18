@@ -237,6 +237,42 @@ class TournamentCubeTests(unittest.TestCase):
             self.assertEqual(stats_pauper["total_matches"], 1)
             self.assertEqual(stats_pauper["power_nine_total"], 0)
 
+    def test_player_statistics_ignores_malformed_legacy_score_rows(self):
+        with temp_cwd():
+            os.makedirs("tournament_data", exist_ok=True)
+            with open("tournament_data/results.csv", "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["Tournament", "Player 1", "Player 2", "Score 1", "Score 2", "Draws"],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "Tournament": "t_valid",
+                        "Player 1": "Alice",
+                        "Player 2": "Bob",
+                        "Score 1": "2",
+                        "Score 2": "1",
+                        "Draws": "0",
+                    }
+                )
+                writer.writerow(
+                    {
+                        "Tournament": "t_bad",
+                        "Player 1": "Alice",
+                        "Player 2": "BYE",
+                        "Score 1": "BYE",
+                        "Score 2": "0",
+                        "Draws": "0",
+                    }
+                )
+
+            stats = get_player_statistics("Alice", cube_filter="all")
+            self.assertEqual(stats["total_matches"], 1)
+            self.assertEqual(stats["matches_won"], 1)
+            self.assertEqual(stats["games_won"], 2)
+            self.assertEqual(stats["games_lost"], 1)
+
     def test_non_vintage_power_nine_api_is_safe_without_file(self):
         with temp_cwd():
             app = create_app()

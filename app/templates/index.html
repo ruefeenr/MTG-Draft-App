@@ -800,13 +800,13 @@
                 <div class="accordion-item" data-tournament-id="{{ tournament.id }}">
                     <div class="accordion-header" style="cursor: default;">
                         <span class="tournament-winner">
-                            🟢 {{ tournament.id[:8] }}{% if tournament.is_current_session %} (aktuell geladen){% endif %}
+                            🟢 {{ tournament.group_name }} • Cube: {{ tournament.cube_name }} • Runde {{ tournament.current_round }}{% if tournament.is_current_session %} (aktuell geladen){% endif %}
                         </span>
-                        <span class="tournament-date">Runde {{ tournament.current_round }} • {{ tournament.player_count }} Spieler • {{ tournament.group_name }} • Cube: {{ tournament.cube_name }}</span>
+                        <span class="tournament-date">{{ tournament.player_count }} Spieler</span>
                         <a href="{{ url_for('main.load_tournament', tournament_id=tournament.id) }}" class="continue-tournament-btn">Fortsetzen</a>
                         <button type="button"
                                 class="delete-tournament-btn"
-                                onclick='event.stopPropagation(); showDeleteConfirmation({{ tournament.id|tojson }}, {{ tournament.id[:8]|tojson }})'>
+                                onclick='event.stopPropagation(); showDeleteConfirmation({{ tournament.id|tojson }}, {{ ("Runde " ~ tournament.current_round ~ " • " ~ tournament.group_name ~ " • Cube: " ~ tournament.cube_name)|tojson }})'>
                             ❌
                         </button>
                     </div>
@@ -1225,7 +1225,7 @@
         function addTestPlayers(targetIndex) {
             const testPlayers = [
                 "Serge", "Remo", "Barney", "Tim", "Enrique", "Sandy",
-                "Fabian", "Chrigi", "Patrick", "Valentin", "Dimi", "Rico"
+                "Fabian", "Chrigi", "Patrick", "Valentin", "Dimi", "Yannik"
             ];
             const resolvedIndex = Number.isInteger(targetIndex) ? targetIndex : 0;
             const targetTable = tableConfigs[resolvedIndex] || tableConfigs[0];
@@ -1260,6 +1260,23 @@
             if (!hasValidTable) {
                 alert("Bitte mindestens einen Tisch mit mindestens 2 Spielern konfigurieren.");
                 return false;
+            }
+            for (let i = 0; i < tableConfigs.length; i += 1) {
+                const table = tableConfigs[i];
+                const playerCount = table.players.length;
+                if (playerCount > table.table_size) {
+                    alert(
+                        `Tisch ${i + 1}: Zu viele Spieler (${playerCount}) für Tischgröße ${table.table_size}.`
+                    );
+                    return false;
+                }
+                if (playerCount % 2 === 1 && playerCount < 6) {
+                    alert(
+                        `Tisch ${i + 1}: Ungerade Spielerzahlen sind erst ab 6 Spielern erlaubt.\n` +
+                        `Bei ungerader Anzahl wird automatisch ein BYE mit 2-0-0 vergeben.`
+                    );
+                    return false;
+                }
             }
             document.getElementById('tablesPayload').value = JSON.stringify(tableConfigs);
             return true;

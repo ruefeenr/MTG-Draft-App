@@ -5,6 +5,10 @@ from ..models import Player
 from .normalize import normalize_name
 
 
+def _is_deleted_player_name(name: str) -> bool:
+    return isinstance(name, str) and name.startswith("DELETED_PLAYER")
+
+
 def get_or_create_player(player_name):
     cleaned = (player_name or "").strip()
     if not cleaned:
@@ -25,4 +29,4 @@ def get_or_create_player(player_name):
 
 def list_player_names():
     rows = Player.query.order_by(Player.name.asc()).all()
-    return [row.name for row in rows]
+    return [row.name for row in rows if row.name and not _is_deleted_player_name(row.name)]

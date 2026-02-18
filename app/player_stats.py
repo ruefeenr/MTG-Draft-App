@@ -24,6 +24,25 @@ POWER_NINE = [
 ]
 
 
+def _is_deleted_player_name(name: str) -> bool:
+    return isinstance(name, str) and name.startswith("DELETED_PLAYER")
+
+
+def _parse_legacy_score(value, default=0):
+    if value is None:
+        return default
+    text = str(value).strip()
+    if text == "":
+        return default
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        try:
+            return int(float(text))
+        except (TypeError, ValueError):
+            return None
+
+
 def get_players_data_path() -> str:
     # Rückwärtskompatibel behalten (legacy JSON), wird nicht mehr primär genutzt.
     return os.path.join("data", "players", "players_data.json")
@@ -97,13 +116,13 @@ def delete_player(player_name: str) -> bool:
 def get_all_players() -> Set[str]:
     players = set()
     if has_app_context():
-        players = {row.name for row in Player.query.all() if row.name != "DELETED_PLAYER"}
+        players = {row.name for row in Player.query.all() if row.name and not _is_deleted_player_name(row.name)}
     legacy_players_file = get_players_data_path()
     if os.path.exists(legacy_players_file):
         try:
             with open(legacy_players_file, "r", encoding="utf-8") as f:
                 players_data = json.load(f)
-                players.update(name for name in players_data.keys() if name and name != "DELETED_PLAYER")
+                players.update(name for name in players_data.keys() if name and not _is_deleted_player_name(name))
         except Exception:
             pass
     # Fallback: falls legacy-Dateien existieren, Namen ergänzen.
@@ -117,9 +136,9 @@ def get_all_players() -> Set[str]:
                 for row in reader:
                     p1 = row.get("Player 1")
                     p2 = row.get("Player 2")
-                    if p1 and p1 != "DELETED_PLAYER":
+                    if p1 and not _is_deleted_player_name(p1):
                         players.add(p1)
-                    if p2 and p2 not in ("DELETED_PLAYER", "BYE"):
+                    if p2 and p2 != "BYE" and not _is_deleted_player_name(p2):
                         players.add(p2)
         except Exception:
             pass
@@ -172,11 +191,14 @@ def _legacy_file_based_stats(player_name: str, group_id: str = None, cube_filter
 
                 if row.get("Player 1") == player_name:
                     tournaments_played.add(tournament_id)
-                    if row.get("Player 2") and row.get("Player 2") not in ("BYE", "DELETED_PLAYER"):
+                    if row.get("Player 2") and row.get("Player 2") != "BYE" and not _is_deleted_player_name(row.get("Player 2")):
                         opponents.add(row.get("Player 2"))
-                    score1 = int(row.get("Score 1", 0))
-                    score2 = int(row.get("Score 2", 0))
-                    draws = int(row.get("Draws", 0))
+                    score1 = _parse_legacy_score(row.get("Score 1", 0))
+                    score2 = _parse_legacy_score(row.get("Score 2", 0))
+                    draws = _parse_legacy_score(row.get("Draws", row.get("score_draws", 0)))
+                    if score1 is None or score2 is None or draws is None:
+                        # Defekte Legacy-Zeilen nicht für Statistik verwenden.
+                        continue
                     stats["total_games"] += score1 + score2 + draws
                     stats["games_won"] += score1
                     stats["games_lost"] += score2
@@ -189,11 +211,14 @@ def _legacy_file_based_stats(player_name: str, group_id: str = None, cube_filter
                         stats["matches_draw"] += 1
                 elif row.get("Player 2") == player_name:
                     tournaments_played.add(tournament_id)
-                    if row.get("Player 1") and row.get("Player 1") != "DELETED_PLAYER":
+                    if row.get("Player 1") and not _is_deleted_player_name(row.get("Player 1")):
                         opponents.add(row.get("Player 1"))
-                    score1 = int(row.get("Score 1", 0))
-                    score2 = int(row.get("Score 2", 0))
-                    draws = int(row.get("Draws", 0))
+                    score1 = _parse_legacy_score(row.get("Score 1", 0))
+                    score2 = _parse_legacy_score(row.get("Score 2", 0))
+                    draws = _parse_legacy_score(row.get("Draws", row.get("score_draws", 0)))
+                    if score1 is None or score2 is None or draws is None:
+                        # Defekte Legacy-Zeilen nicht für Statistik verwenden.
+                        continue
                     stats["total_games"] += score1 + score2 + draws
                     stats["games_won"] += score2
                     stats["games_lost"] += score1
@@ -272,13 +297,13 @@ def get_player_statistics(player_name: str, group_id: str = None, cube_filter: s
             my_score = match.score1 or 0
             opp_score = match.score2 or 0
             draws = match.score_draws or 0
-            if match.player2 and match.player2.name not in ("DELETED_PLAYER", "BYE"):
+            if match.player2 and match.player2.name != "BYE" and not _is_deleted_player_name(match.player2.name):
                 opponents.add(match.player2.name)
         else:
             my_score = match.score2 or 0
             opp_score = match.score1 or 0
             draws = match.score_draws or 0
-            if match.player1 and match.player1.name != "DELETED_PLAYER":
+            if match.player1 and not _is_deleted_player_name(match.player1.name):
                 opponents.add(match.player1.name)
 
         stats["games_won"] += my_score

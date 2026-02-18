@@ -46,6 +46,10 @@ TOURNAMENT_STATUS_ENDED = "ended"
 AUTH_EXEMPT_ENDPOINTS = {"main.login", "main.logout", "static", "healthz"}
 
 
+def _is_deleted_player_name(name):
+    return isinstance(name, str) and name.startswith("DELETED_PLAYER")
+
+
 def _is_authenticated():
     return bool(session.get("is_authenticated"))
 
@@ -846,6 +850,13 @@ def start_tables():
             )
         if len(players) < 2:
             return render_index_page(error=f"Tisch {idx}: Mindestens 2 Spieler erforderlich.")
+        if len(players) % 2 == 1 and len(players) < 6:
+            return render_index_page(
+                error=(
+                    f"Tisch {idx}: Ungerade Spielerzahlen sind erst ab 6 Spielern erlaubt. "
+                    "Bei ungerader Anzahl wird automatisch ein BYE mit 2-0-0 vergeben."
+                )
+            )
 
         duplicates_across_tables = [player for player in players if player in all_players_seen]
         if duplicates_across_tables:
@@ -1093,6 +1104,23 @@ def save_results():
     
     print(f"Daten aus Formular: Tisch {table}, {player1} vs {player2}, Ergebnis: {score1}-{score2}-{score_draws}, Tischgrösse: {table_size}, Runde: {current_round}")
     print(f"Dropout1: {dropout1}, Dropout2: {dropout2}")
+
+    # Ergebniseingaben serverseitig strikt validieren (auch bei direkten API-Requests).
+    try:
+        score1_int = int(score1)
+        score2_int = int(score2)
+        draws_int = int(score_draws)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Ergebnis enthält ungültige Werte."}), 400
+
+    if not (0 <= score1_int <= 2 and 0 <= score2_int <= 2 and 0 <= draws_int <= 2):
+        return jsonify({"success": False, "message": "Ergebnis muss im Bereich 0 bis 2 liegen."}), 400
+    if score1_int == 2 and score2_int == 2:
+        return jsonify({"success": False, "message": "Beide Spieler können nicht 2 Siege haben."}), 400
+    if (score1_int + score2_int + draws_int) > 3:
+        return jsonify({"success": False, "message": "Ungültiges Ergebnis: Es werden maximal 3 Spiele pro Match gespielt."}), 400
+    if player2 == "BYE" and (score1_int != 2 or score2_int != 0 or draws_int != 0):
+        return jsonify({"success": False, "message": "BYE-Matches haben immer das Ergebnis 2-0-0."}), 400
     
     # Verarbeite Power Nine Daten nur für Vintage-Turniere
     if is_vintage and player1_power_nine and player1_name:
@@ -1438,6 +1466,8 @@ def validate_round_completion(round_file):
                     return False, f"Tisch {table}: Ergebnis muss im Bereich 0 bis 2 liegen."
                 if score1 == 2 and score2 == 2:
                     return False, f"Tisch {table}: Beide Spieler können nicht 2 Siege haben."
+                if (score1 + score2 + draws) > 3:
+                    return False, f"Tisch {table}: Es werden maximal 3 Spiele pro Match gespielt."
                 if score1 == 0 and score2 == 0 and draws == 0:
                     return False, f"Tisch {table}: Match ist noch nicht gespielt (0-0-0)."
     except (IOError, OSError) as e:
@@ -2231,7 +2261,7 @@ def players_list():
     players_data = {}
     for player in all_players:
         # Überspringe gelöschte Spieler
-        if player == "DELETED_PLAYER":
+        if _is_deleted_player_name(player):
             continue
             
         # Lade Spielerdaten und Statistiken
@@ -2275,7 +2305,7 @@ def players_list():
 def player_profile(player_name):
     """Zeigt das Profil eines Spielers an"""
     # Verhindere Zugriff auf gelöschte Spieler
-    if player_name == "DELETED_PLAYER":
+    if _is_deleted_player_name(player_name):
         flash("Dieser Spieler existiert nicht mehr.")
         return redirect(url_for('main.players_list'))
     

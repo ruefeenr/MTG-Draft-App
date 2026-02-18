@@ -322,6 +322,61 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
 
+        .top-toolbar-back {
+            display: inline-flex;
+            align-items: center;
+            text-decoration: none;
+            color: var(--dark-color);
+            background: var(--light-color);
+            border: 1px solid rgba(74, 144, 226, 0.2);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .top-toolbar-back:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+        }
+
+        .tournament-ended-alert {
+            color: #1f2937;
+            background-color: #f3f4f6;
+            border: 1px solid #d1d5db;
+        }
+
+        .tim-easter-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.12);
+        }
+
+        .tim-easter-overlay.show {
+            display: flex;
+        }
+
+        .tim-easter-image {
+            width: min(68vw, 520px);
+            max-height: 70vh;
+            object-fit: contain;
+            animation: timEasterWiggle 0.2s ease-in-out infinite;
+            filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
+        }
+
+        @keyframes timEasterWiggle {
+            0% { transform: translateX(0) rotate(0deg); }
+            25% { transform: translateX(-7px) rotate(-2.5deg); }
+            50% { transform: translateX(7px) rotate(2.5deg); }
+            75% { transform: translateX(-5px) rotate(-1.5deg); }
+            100% { transform: translateX(0) rotate(0deg); }
+        }
+
         .tournament-switcher {
             margin: 10px 0 20px 0;
             padding: 12px;
@@ -402,6 +457,37 @@
             font-size: 1.5em;
             text-align: center;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        .table-group-header.with-actions {
+            padding-left: 180px;
+            padding-right: 180px;
+        }
+
+        .table-group-header-title {
+            display: inline-block;
+        }
+
+        .table-group-header-action {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            margin: 0;
+        }
+
+        .table-group-header-action.left {
+            left: 12px;
+        }
+
+        .table-group-header-action.right {
+            right: 12px;
+        }
+
+        .table-group-header-action .btn-result {
+            font-size: 0.6em;
+            padding: 8px 12px;
+            white-space: nowrap;
         }
 
         .table-group-section {
@@ -589,6 +675,24 @@
             background: linear-gradient(135deg, var(--gradient-end) 0%, var(--dark-color) 100%);
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .btn-result.destructive-soft {
+            background: linear-gradient(135deg, #c85b63 0%, #b84f57 100%);
+            color: #fff;
+        }
+
+        .btn-result.destructive-soft:hover {
+            background: linear-gradient(135deg, #b84f57 0%, #a6454d 100%);
+        }
+
+        .btn-result.primary-soft {
+            background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+            color: #fff;
+        }
+
+        .btn-result.primary-soft:hover {
+            background: linear-gradient(135deg, #357abd 0%, #2f6ea6 100%);
         }
 
         /* Modal Styles */
@@ -1054,8 +1158,14 @@
         }
 
         .status-pill.ended {
-            background: #fef2f2;
-            color: #b91c1c;
+            display: inline-block;
+            color: #721c24;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 15px 0;
+            font-weight: 500;
         }
 
         /* Verbesserte Fehlermeldung im Modal */
@@ -1095,6 +1205,42 @@
     </style>
     <script>
         const isVintageTournament = {{ 'true' if is_vintage_tournament else 'false' }};
+        const TIM_EASTER_DURATION_MS = 2000;
+        let timEasterAssetAvailable = false;
+        let timEasterHideTimeout = null;
+
+        function normalizeTimName(name) {
+            return String(name || '').trim().toLowerCase();
+        }
+
+        function isTimLosesTwoZero(player1Name, player2Name, score1, score2) {
+            const s1 = parseInt(score1, 10);
+            const s2 = parseInt(score2, 10);
+            if (Number.isNaN(s1) || Number.isNaN(s2)) {
+                return false;
+            }
+            const p1IsTim = normalizeTimName(player1Name) === 'tim';
+            const p2IsTim = normalizeTimName(player2Name) === 'tim';
+            return (p1IsTim && s1 === 0 && s2 === 2) || (p2IsTim && s2 === 0 && s1 === 2);
+        }
+
+        function showTimEasterEgg() {
+            if (!timEasterAssetAvailable) {
+                return false;
+            }
+            const overlay = document.getElementById('timEasterOverlay');
+            if (!overlay) {
+                return false;
+            }
+            if (timEasterHideTimeout) {
+                clearTimeout(timEasterHideTimeout);
+            }
+            overlay.classList.add('show');
+            timEasterHideTimeout = setTimeout(() => {
+                overlay.classList.remove('show');
+            }, TIM_EASTER_DURATION_MS);
+            return true;
+        }
 
         // Debug-Funktion für 🦵-Symbol Klassen
         document.addEventListener('DOMContentLoaded', function() {
@@ -1577,6 +1723,7 @@
         function validateResultForm() {
             const score1 = parseInt(document.getElementById('modalScore1').value) || 0;
             const score2 = parseInt(document.getElementById('modalScore2').value) || 0;
+            const draws = parseInt(document.getElementById('modalScoreDraws').value) || 0;
             const player2 = document.getElementById('modalPlayer2').value;
             const errorBox = document.getElementById('errorMessageBox');
             const errorText = document.getElementById('errorMessageText');
@@ -1592,9 +1739,17 @@
                 errorBox.classList.add('error-highlight');
                 return false;
             }
+
+            // Es werden maximal 3 Spiele pro Match gespielt.
+            if ((score1 + score2 + draws) > 3) {
+                errorText.textContent = "Ungültiges Ergebnis: Es werden maximal 3 Spiele pro Match gespielt.";
+                errorBox.style.display = "block";
+                errorBox.classList.add('error-highlight');
+                return false;
+            }
             
             // BYE-Matches haben immer das Ergebnis 2-0
-            if (player2 === "BYE" && (score1 !== 2 || score2 !== 0)) {
+            if (player2 === "BYE" && (score1 !== 2 || score2 !== 0 || draws !== 0)) {
                 errorText.textContent = "BYE-Matches haben immer das Ergebnis 2-0.";
                 errorBox.style.display = "block";
                 errorBox.classList.add('error-highlight');
@@ -1606,6 +1761,19 @@
         
         // Verbessern des Event-Listeners für das Formular
         document.addEventListener('DOMContentLoaded', function() {
+            const timEasterImage = document.getElementById('timEasterImage');
+            if (timEasterImage) {
+                timEasterImage.addEventListener('load', () => {
+                    timEasterAssetAvailable = true;
+                });
+                timEasterImage.addEventListener('error', () => {
+                    timEasterAssetAvailable = false;
+                });
+                if (timEasterImage.complete && timEasterImage.naturalWidth > 0) {
+                    timEasterAssetAvailable = true;
+                }
+            }
+
             const form = document.getElementById('resultForm');
             if (form) {
                 form.addEventListener('submit', function(event) {
@@ -1655,6 +1823,7 @@
                     const scoreDraws = document.getElementById('modalScoreDraws').value;
                     const dropout1 = document.getElementById('modalDropout1').value;
                     const dropout2 = document.getElementById('modalDropout2').value;
+                    const timLostTwoZero = isTimLosesTwoZero(player1Name, player2Name, score1, score2);
                     
                     // Schließe das Modal
                     closeResultModal();
@@ -1683,11 +1852,12 @@
                         
                         // Bei erfolgreicher Speicherung noch einmal die lokale UI aktualisieren
                         updateMatchResult(table, score1, score2, scoreDraws, dropout1, dropout2);
-                        
+
+                        const reloadDelay = timLostTwoZero && showTimEasterEgg() ? TIM_EASTER_DURATION_MS : 1;
                         // Nach kurzer Verzögerung Seite neu laden, um sowohl Leaderboard als auch Power Nine Emojis zu aktualisieren
                         setTimeout(() => {
                             performFullReload();
-                        }, 1);
+                        }, reloadDelay);
                     })
                     .catch(error => {
                         console.error('Fehler beim Speichern des Ergebnisses:', error);
@@ -2006,21 +2176,10 @@
 <body>
     <h1>Grotto Turnier Manager</h1>
 
-    {% with messages = get_flashed_messages() %}
-        {% if messages %}
-            <div style="margin-bottom: 16px;">
-                {% for message in messages|unique %}
-                    <div class="error-message-box" style="display: block; margin-bottom: 8px;">
-                        <strong>Hinweis:</strong> {{ message }}
-                    </div>
-                {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
-
     <div class="timer-section">
         <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
             <div style="display: flex; align-items: center; gap: 15px;">
+                <a href="{{ url_for('main.index') }}" class="top-toolbar-back">← Startseite</a>
                 <label for="timer-minutes">Matchzeit:</label>
                 <input type="number" id="timer-minutes" value="50" min="1" class="timer-input">
                 <button onclick="startTimer()" class="timer-button start">Start Timer</button>
@@ -2039,29 +2198,15 @@
         </div>
     </div>
 
-    <div class="control-buttons" style="margin: 20px 0; display: flex; justify-content: space-between; align-items: flex-start;">
-        <div>
-            <a href="{{ url_for('main.index') }}" class="btn-result" style="display:inline-block; text-decoration:none; background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Zur Startseite</a>
-        </div>
-        <div style="display: flex; gap: 1em; margin-left: {% if tournament_ended %}20px{% else %}0{% endif %};">
-            <div class="status-pill {% if tournament_ended %}ended{% else %}running{% endif %}">
-                Status: {% if tournament_ended %}beendet{% else %}läuft{% endif %}
-            </div>
+    <div
+        class="control-buttons"
+        style="margin: 20px 0; display: flex; {% if tournament_ended %}justify-content: center; align-items: center;{% else %}justify-content: flex-end; align-items: flex-start;{% endif %}"
+    >
+        <div style="display: flex; gap: 1em; margin-left: 0; justify-content: center;">
             {% if tournament_ended %}
-                <div class="alert" style="display: inline-block;">
-                    <strong>Hinweis:</strong> Dieses Turnier wurde bereits beendet. Sie können die Rundenansicht weiterhin nutzen, aber keine Änderungen mehr vornehmen.
+                <div class="alert tournament-ended-alert" style="display: inline-block;">
+                    Turnier beendet. Keine Änderungen mehr möglich.
                 </div>
-            {% else %}
-                <form method="POST" action="{{ url_for('main.next_round') }}" style="display:inline;">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Nächste Runde</button>
-                </form>
-            {% endif %}
-            {% if not tournament_ended %}
-                <form method="POST" action="/end_tournament" style="display:inline;">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn-result" style="background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%); color: white;">Turnier beenden</button>
-                </form>
             {% endif %}
         </div>
     </div>
@@ -2103,8 +2248,20 @@
             {% set table_size = group_key.split('-')[0] if '-' in group_key else group_key %}
             {% set group_num = group_key.split('-')[1] if '-' in group_key else '1' %}
             <div class="table-group-section">
-                <div class="table-group-header">
+            <div class="table-group-header {% if not tournament_ended and loop.first %}with-actions{% endif %}">
+                {% if not tournament_ended and loop.first %}
+                    <form method="POST" action="/end_tournament" class="table-group-header-action left">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn-result destructive-soft">Turnier beenden</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('main.next_round') }}" class="table-group-header-action right">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn-result primary-soft">Nächste Runde</button>
+                    </form>
+                {% endif %}
+                <span class="table-group-header-title">
                     🎲 {{ table_size }}-Spieler Tisch {% if '-' in group_key %}#{{ group_num }}{% endif %}
+                </span>
                 </div>
 
                 <div class="matches-container">
@@ -2313,6 +2470,16 @@
             </div>
         {% endfor %}
     {% endif %}
+
+    <div id="timEasterOverlay" class="tim-easter-overlay" aria-hidden="true">
+        <img
+            id="timEasterImage"
+            class="tim-easter-image"
+            src="{{ url_for('static', filename='easter_eggs/tim_lost_2_0.png') }}"
+            alt="Tim Easter Egg"
+            loading="eager"
+        >
+    </div>
 
     <!-- Ergebnis-Eingabe Modal -->
     <div id="resultModal" class="modal">

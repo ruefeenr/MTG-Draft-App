@@ -151,3 +151,27 @@ def test_rate_limit_blocks_repeated_mutations(client, app, monkeypatch):
     second = client.post("/groups/create", data={"group_name": "Rate B", "csrf_token": token}, follow_redirects=False)
     assert second.status_code == 429
     assert second.get_json()["code"] == "RATE_LIMIT_EXCEEDED"
+
+
+def test_save_results_rejects_more_than_three_total_games(client):
+    tournament_id = _start_tournament(client)
+    match = _first_match(tournament_id)
+
+    response = client.post(
+        "/save_results",
+        data={
+            "table": match["table"],
+            "player1": match["player1"],
+            "player2": match["player2"],
+            "score1": "2",
+            "score2": "1",
+            "score_draws": "1",
+            "current_round": "1",
+            "dropout1": "false",
+            "dropout2": "false",
+            "table_size": match.get("table_size", "6"),
+        },
+    )
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert "maximal 3 Spiele" in payload["message"]
