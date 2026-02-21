@@ -507,9 +507,49 @@
 
         .match-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 10px;
             margin: 15px 0;
+        }
+
+        .match-grid.cols-1 {
+            grid-template-columns: repeat(1, minmax(0, 1fr));
+        }
+
+        .match-grid.cols-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .match-grid.cols-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .match-card.placeholder {
+            visibility: hidden;
+            pointer-events: none;
+            box-shadow: none;
+            border: 0;
+        }
+
+        .match-card.placeholder:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        @media (max-width: 980px) {
+            .match-grid.cols-3 {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 640px) {
+            .match-grid.cols-2,
+            .match-grid.cols-3 {
+                grid-template-columns: repeat(1, minmax(0, 1fr));
+            }
+            .match-card.placeholder {
+                display: none;
+            }
         }
 
         .match-header {
@@ -1202,6 +1242,51 @@
             padding: 12px !important;
             text-align: center !important;
         }
+
+        .manual-pairing-toolbar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin: 0 0 16px 0;
+        }
+
+        .manual-pairing-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: none;
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+            color: white;
+            border-radius: 6px;
+            padding: 8px 15px;
+            font-size: 0.9rem;
+        }
+
+        .manual-pairing-saved {
+            display: inline-block;
+            background: #ecfdf5;
+            color: #166534;
+            border: 1px solid #86efac;
+            border-radius: 6px;
+            padding: 8px 15px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .player-info.manual-enabled {
+            cursor: grab;
+            border: 1px dashed rgba(56, 189, 248, 0.55);
+        }
+
+        .player-info.manual-dragging {
+            opacity: 0.45;
+        }
+
+        .player-info.manual-drop-target {
+            outline: 2px solid rgba(56, 189, 248, 0.85);
+            outline-offset: 2px;
+        }
     </style>
     <script>
         const isVintageTournament = {{ 'true' if is_vintage_tournament else 'false' }};
@@ -1279,6 +1364,8 @@
         let timerInterval;
         let remainingSeconds = 0;
         let timerEndTime = 0; // Neues Feld zur Speicherung der Endzeit
+        let isSavingResult = false;
+        let resultReloadScheduled = false;
         const timerStoragePrefix = `timer:${{ tournament_id|tojson }}:`;
 
         function getTimerStorageKey(key) {
@@ -1779,11 +1866,21 @@
                 form.addEventListener('submit', function(event) {
                     // Verhindere das Standard-Absenden des Formulars
                     event.preventDefault();
+
+                    if (isSavingResult) {
+                        console.log("Save bereits in Bearbeitung - doppeltes Submit ignoriert.");
+                        return false;
+                    }
                     
                     // Validiere das Formular
                     if (!validateResultForm()) {
                         console.log("Formularvalidierung fehlgeschlagen!");
                         return false;
+                    }
+                    isSavingResult = true;
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
                     }
                     
                     // Sammle alle Formulardaten
@@ -1855,9 +1952,7 @@
 
                         const reloadDelay = timLostTwoZero && showTimEasterEgg() ? TIM_EASTER_DURATION_MS : 1;
                         // Nach kurzer Verzögerung Seite neu laden, um sowohl Leaderboard als auch Power Nine Emojis zu aktualisieren
-                        setTimeout(() => {
-                            performFullReload();
-                        }, reloadDelay);
+                        scheduleResultReload(reloadDelay);
                     })
                     .catch(error => {
                         console.error('Fehler beim Speichern des Ergebnisses:', error);
@@ -1866,6 +1961,10 @@
                             errorMessage += ': ' + error.message;
                         }
                         // showFloatingMessage(errorMessage, true);
+                        isSavingResult = false;
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                        }
                     });
                     
                     return false; // Stoppte die normale Formularverarbeitung
@@ -2141,6 +2240,207 @@
                 });
             }
         });
+
+        const roundIsUnplayed = {{ 'true' if round_is_unplayed else 'false' }};
+        let manualPairingEnabled = false;
+        let draggedPlayerInfo = null;
+        let manualPairingsDirty = false;
+        let manualPairingSavedVisible = false;
+
+        function canUseManualPairingNode(node) {
+            return Boolean(node)
+                && node.classList.contains('player-info')
+                && node.dataset.rawPlayer
+                && node.dataset.rawPlayer !== 'BYE';
+        }
+
+        function setManualPairingsDirty(value) {
+            manualPairingsDirty = Boolean(value);
+            const saveBtn = document.getElementById('saveManualPairingsBtn');
+            const savedLabel = document.getElementById('manualPairingSavedLabel');
+            if (!saveBtn) {
+                return;
+            }
+            const shouldShow = manualPairingEnabled && roundIsUnplayed;
+            saveBtn.style.display = shouldShow ? 'inline-block' : 'none';
+            saveBtn.disabled = !manualPairingsDirty;
+            if (savedLabel) {
+                if (manualPairingsDirty) {
+                    manualPairingSavedVisible = false;
+                }
+                savedLabel.style.display = manualPairingSavedVisible ? 'inline-block' : 'none';
+            }
+        }
+
+        function clearManualDnDClasses() {
+            document.querySelectorAll('.player-info.manual-drop-target').forEach((node) => {
+                node.classList.remove('manual-drop-target');
+            });
+            document.querySelectorAll('.player-info.manual-dragging').forEach((node) => {
+                node.classList.remove('manual-dragging');
+            });
+        }
+
+        function handleManualDragStart(event) {
+            if (!manualPairingEnabled || !roundIsUnplayed || !canUseManualPairingNode(event.currentTarget)) {
+                event.preventDefault();
+                return;
+            }
+            draggedPlayerInfo = event.currentTarget;
+            draggedPlayerInfo.classList.add('manual-dragging');
+            if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', draggedPlayerInfo.dataset.rawPlayer || '');
+            }
+        }
+
+        function handleManualDragEnd() {
+            clearManualDnDClasses();
+            draggedPlayerInfo = null;
+        }
+
+        function handleManualDragOver(event) {
+            if (!manualPairingEnabled || !draggedPlayerInfo) {
+                return;
+            }
+            if (!canUseManualPairingNode(event.currentTarget) || event.currentTarget === draggedPlayerInfo) {
+                return;
+            }
+            event.preventDefault();
+            event.currentTarget.classList.add('manual-drop-target');
+        }
+
+        function handleManualDrop(event) {
+            if (!manualPairingEnabled || !roundIsUnplayed || !draggedPlayerInfo) {
+                return;
+            }
+            if (!canUseManualPairingNode(event.currentTarget) || event.currentTarget === draggedPlayerInfo) {
+                return;
+            }
+            event.preventDefault();
+            const source = draggedPlayerInfo;
+            const target = event.currentTarget;
+
+            const sourceClone = source.cloneNode(true);
+            const targetClone = target.cloneNode(true);
+            source.replaceWith(targetClone);
+            target.replaceWith(sourceClone);
+
+            initManualPairingDnD();
+            setManualPairingsDirty(true);
+        }
+
+        function initManualPairingDnD() {
+            const allPlayers = document.querySelectorAll('.match-card .match-content > .player-info');
+            allPlayers.forEach((node) => {
+                node.classList.remove('manual-enabled', 'manual-drop-target', 'manual-dragging');
+                node.draggable = false;
+                node.ondragstart = null;
+                node.ondragend = null;
+                node.ondragover = null;
+                node.ondragleave = null;
+                node.ondrop = null;
+            });
+
+            if (!manualPairingEnabled || !roundIsUnplayed) {
+                return;
+            }
+
+            allPlayers.forEach((node) => {
+                if (!canUseManualPairingNode(node)) {
+                    return;
+                }
+                node.classList.add('manual-enabled');
+                node.draggable = true;
+                node.ondragstart = handleManualDragStart;
+                node.ondragend = handleManualDragEnd;
+                node.ondragover = handleManualDragOver;
+                node.ondragleave = () => node.classList.remove('manual-drop-target');
+                node.ondrop = handleManualDrop;
+            });
+        }
+
+        function collectManualPairings() {
+            const result = [];
+            const cards = document.querySelectorAll('.match-card');
+            cards.forEach((card) => {
+                const table = card.dataset.table;
+                const infos = card.querySelectorAll('.match-content > .player-info');
+                if (!table || infos.length < 2) {
+                    return;
+                }
+                const p1 = infos[0].dataset.rawPlayer || '';
+                const p2 = infos[1].dataset.rawPlayer || '';
+                result.push({ table, player1: p1, player2: p2 });
+            });
+            return result;
+        }
+
+        function persistPairingMode(mode) {
+            const formData = new FormData();
+            formData.append('csrf_token', '{{ csrf_token() }}');
+            formData.append('pairing_mode', mode);
+            fetch('{{ url_for("main.update_pairing_mode") }}', {
+                method: 'POST',
+                body: formData
+            }).catch(() => null);
+        }
+
+        function bindManualPairingUi() {
+            const toggle = document.getElementById('manualPairingToggle');
+            const saveBtn = document.getElementById('saveManualPairingsBtn');
+            const savedLabel = document.getElementById('manualPairingSavedLabel');
+            if (!toggle) {
+                return;
+            }
+
+            manualPairingEnabled = Boolean(toggle.checked) && roundIsUnplayed;
+            initManualPairingDnD();
+            setManualPairingsDirty(false);
+
+            toggle.addEventListener('change', () => {
+                manualPairingEnabled = Boolean(toggle.checked) && roundIsUnplayed;
+                persistPairingMode(toggle.checked ? 'manual' : 'auto');
+                clearManualDnDClasses();
+                initManualPairingDnD();
+                manualPairingSavedVisible = false;
+                if (savedLabel) {
+                    savedLabel.style.display = 'none';
+                }
+                setManualPairingsDirty(false);
+            });
+
+            if (!saveBtn) {
+                return;
+            }
+            saveBtn.addEventListener('click', async () => {
+                const payload = collectManualPairings();
+                const formData = new FormData();
+                formData.append('csrf_token', '{{ csrf_token() }}');
+                formData.append('matches_json', JSON.stringify(payload));
+                try {
+                    const response = await fetch('{{ url_for("main.save_round_pairings", round_number=current_round) }}', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.success) {
+                        throw new Error((data && data.message) ? data.message : 'Paarungen konnten nicht gespeichert werden.');
+                    }
+                    toggle.checked = false;
+                    manualPairingEnabled = false;
+                    persistPairingMode('auto');
+                    clearManualDnDClasses();
+                    initManualPairingDnD();
+                    manualPairingSavedVisible = true;
+                    setManualPairingsDirty(false);
+                } catch (error) {
+                    showFloatingMessage(`Fehler beim Speichern: ${error.message}`, true);
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', bindManualPairingUi);
         
         // Scrollposition nach Reload wiederherstellen
         window.addEventListener('load', function() {
@@ -2170,6 +2470,17 @@
                 // Fallback bei Fehlern
                 window.location.reload(true);
             }
+        }
+
+        function scheduleResultReload(delayMs) {
+            if (resultReloadScheduled) {
+                return;
+            }
+            resultReloadScheduled = true;
+            const safeDelay = Math.max(0, Number(delayMs) || 0);
+            setTimeout(() => {
+                performFullReload();
+            }, safeDelay);
         }
     </script>
 </head>
@@ -2210,6 +2521,29 @@
             {% endif %}
         </div>
     </div>
+    {% if not tournament_ended %}
+    <div class="manual-pairing-toolbar">
+        <label class="manual-pairing-chip">
+            <input
+                type="checkbox"
+                id="manualPairingToggle"
+                {% if current_pairing_mode == 'manual' %}checked{% endif %}
+                {% if not round_is_unplayed %}disabled{% endif %}
+            >
+            Manuelles Paaren aktivieren
+        </label>
+        <button
+            type="button"
+            id="saveManualPairingsBtn"
+            class="btn-result primary-soft"
+            style="display: none;"
+            {% if not round_is_unplayed %}disabled{% endif %}
+        >
+            Manuelle Paarungen speichern
+        </button>
+        <span id="manualPairingSavedLabel" class="manual-pairing-saved" style="display: none;">Gespeichert</span>
+    </div>
+    {% endif %}
 
     {% if running_tournaments and running_tournaments|length > 1 %}
         <div class="tournament-switcher">
@@ -2266,7 +2600,15 @@
 
                 <div class="matches-container">
                     <h3>Matches</h3>
-                    <div class="match-grid">
+                    {% set match_count = matches_in_group|length %}
+                    {% if match_count == 1 %}
+                        {% set grid_cols = 1 %}
+                    {% elif match_count in [2, 4] %}
+                        {% set grid_cols = 2 %}
+                    {% else %}
+                        {% set grid_cols = 3 %}
+                    {% endif %}
+                    <div class="match-grid cols-{{ grid_cols }}">
                         {% for match in matches_in_group %}
                             {% set is_dropout1 = match.dropout1 == 'true' %}
                             {% set is_dropout2 = match.dropout2 == 'true' %}
@@ -2355,7 +2697,7 @@
                                     <!-- Spieler 1 -->
                                     {% if is_dropout1 %}
                                         <!-- Spezielle Spielerkarte für 🦵-markierte Spieler -->
-                                        <div class="player-info leg-marked">
+                                        <div class="player-info leg-marked" data-raw-player="{{ match.player1 }}" data-player-slot="player1">
                                             <span class="player-name">{{ clean_player1 }} <span class="leg-indicator">🦵</span>
                                             {% for emoji in p9_emojis1 %}
                                                 <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
@@ -2365,7 +2707,7 @@
                                         </div>
                                     {% elif match.player2 == "BYE" %}
                                         <!-- Spieler mit BYE Match automatisch als Gewinner darstellen -->
-                                        <div class="player-info winner">
+                                        <div class="player-info winner" data-raw-player="{{ match.player1 }}" data-player-slot="player1">
                                             <span class="player-name">{{ clean_player1 }}
                                             {% for emoji in p9_emojis1 %}
                                                 <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
@@ -2375,7 +2717,7 @@
                                         </div>
                                     {% else %}
                                         <!-- Standard-Spielerkarte für normale Spieler -->
-                                        <div class="player-info {% if match.score1|int > match.score2|int %}winner{% elif match.score1|int < match.score2|int %}loser{% elif match.score1|int == match.score2|int and match.score1|int > 0 %}draw{% endif %}">
+                                        <div class="player-info {% if match.score1|int > match.score2|int %}winner{% elif match.score1|int < match.score2|int %}loser{% elif match.score1|int == match.score2|int and match.score1|int > 0 %}draw{% endif %}" data-raw-player="{{ match.player1 }}" data-player-slot="player1">
                                             <span class="player-name">{{ clean_player1 }}
                                             {% for emoji in p9_emojis1 %}
                                                 <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
@@ -2388,7 +2730,7 @@
                                     <!-- Spieler 2 -->
                                     {% if is_dropout2 %}
                                         <!-- Spezielle Spielerkarte für 🦵-markierte Spieler -->
-                                        <div class="player-info leg-marked">
+                                        <div class="player-info leg-marked" data-raw-player="{{ match.player2 }}" data-player-slot="player2">
                                             <span class="player-name">{{ clean_player2 }} <span class="leg-indicator">🦵</span>
                                             {% for emoji in p9_emojis2 %}
                                                 <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
@@ -2398,13 +2740,13 @@
                                         </div>
                                     {% elif match.player2 == "BYE" %}
                                         <!-- Spezielle Spielerkarte für BYE -->
-                                        <div class="player-info leg-marked">
+                                        <div class="player-info leg-marked" data-raw-player="{{ match.player2 }}" data-player-slot="player2">
                                             <span class="player-name"><span class="leg-indicator">🦵</span> BYE</span>
                                             <div class="score">0</div>
                                         </div>
                                     {% else %}
                                         <!-- Standard-Spielerkarte für normale Spieler -->
-                                        <div class="player-info {% if match.score2|int > match.score1|int %}winner{% elif match.score2|int < match.score1|int %}loser{% elif match.score2|int == match.score1|int and match.score2|int > 0 %}draw{% endif %}">
+                                        <div class="player-info {% if match.score2|int > match.score1|int %}winner{% elif match.score2|int < match.score1|int %}loser{% elif match.score2|int == match.score1|int and match.score2|int > 0 %}draw{% endif %}" data-raw-player="{{ match.player2 }}" data-player-slot="player2">
                                             <span class="player-name">{{ clean_player2 }}
                                             {% for emoji in p9_emojis2 %}
                                                 <span class="power-nine-emoji" title="Power Nine">{{ emoji }}</span>
@@ -2423,6 +2765,9 @@
                                 </div>
                             </div>
                         {% endfor %}
+                        {% if match_count == 5 %}
+                            <div class="match-card placeholder" aria-hidden="true"></div>
+                        {% endif %}
                     </div>
                 </div>
 

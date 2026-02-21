@@ -6,6 +6,9 @@ import unittest
 from contextlib import contextmanager
 
 from app import create_app
+from app.db import db
+from app.models import Player
+from app.services.normalize import normalize_name
 from app.tournament_groups import load_tournament_meta
 
 
@@ -195,6 +198,136 @@ class TableBuilderFlowTests(unittest.TestCase):
             html = response.get_data(as_text=True)
             self.assertIn("Ungerade Spielerzahlen sind erst ab 6 Spielern erlaubt", html)
 
+    def test_start_tables_persists_pairing_mode_in_meta(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+            payload = [
+                {
+                    "table_size": 6,
+                    "group_id": "liga",
+                    "cube_id": "vintage",
+                    "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
+                }
+            ]
+            response = client.post(
+                "/start_tables",
+                data={"tables_payload": json.dumps(payload), "pairing_mode": "manual"},
+                follow_redirects=False,
+            )
+            self.assertIn(response.status_code, (302, 303))
+            with client.session_transaction() as sess:
+                tournament_id = sess.get("tournament_id")
+            meta = load_tournament_meta()
+            self.assertEqual(meta[tournament_id].get("pairing_mode"), "manual")
+
+    def test_save_round_pairings_swaps_players_before_round_start(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+            payload = [
+                {
+                    "table_size": 6,
+                    "group_id": "liga",
+                    "cube_id": "vintage",
+                    "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
+                }
+            ]
+            start_response = client.post(
+                "/start_tables",
+                data={"tables_payload": json.dumps(payload)},
+                follow_redirects=False,
+            )
+            self.assertIn(start_response.status_code, (302, 303))
+            with client.session_transaction() as sess:
+                tournament_id = sess.get("tournament_id")
+            round_path = os.path.join("data", tournament_id, "rounds", "round_1.csv")
+            with open(round_path, "r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+
+            non_bye_rows = [row for row in rows if row.get("player2") != "BYE"]
+            self.assertGreaterEqual(len(non_bye_rows), 2)
+            table_a = non_bye_rows[0]["table"]
+            table_b = non_bye_rows[1]["table"]
+            a_p1 = non_bye_rows[0]["player1"]
+            b_p1 = non_bye_rows[1]["player1"]
+
+            submitted = []
+            for row in rows:
+                row_copy = {"table": row["table"], "player1": row["player1"], "player2": row["player2"]}
+                if row["table"] == table_a:
+                    row_copy["player1"] = b_p1
+                elif row["table"] == table_b:
+                    row_copy["player1"] = a_p1
+                submitted.append(row_copy)
+
+            save_response = client.post(
+                "/round/1/save_pairings",
+                data={"matches_json": json.dumps(submitted)},
+                follow_redirects=False,
+            )
+            self.assertEqual(save_response.status_code, 200)
+            body = save_response.get_json()
+            self.assertTrue(body.get("success"))
+
+            with open(round_path, "r", encoding="utf-8") as f:
+                updated_rows = list(csv.DictReader(f))
+            updated_by_table = {row["table"]: row for row in updated_rows}
+            self.assertEqual(updated_by_table[table_a]["player1"], b_p1)
+            self.assertEqual(updated_by_table[table_b]["player1"], a_p1)
+
+    def test_save_round_pairings_rejected_after_round_started(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+            payload = [
+                {
+                    "table_size": 6,
+                    "group_id": "liga",
+                    "cube_id": "vintage",
+                    "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
+                }
+            ]
+            start_response = client.post(
+                "/start_tables",
+                data={"tables_payload": json.dumps(payload)},
+                follow_redirects=False,
+            )
+            self.assertIn(start_response.status_code, (302, 303))
+            with client.session_transaction() as sess:
+                tournament_id = sess.get("tournament_id")
+            round_path = os.path.join("data", tournament_id, "rounds", "round_1.csv")
+            with open(round_path, "r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+
+            normal_row = next(row for row in rows if row.get("player2") != "BYE")
+            client.post(
+                "/save_results",
+                data={
+                    "table": normal_row["table"],
+                    "player1": normal_row["player1"],
+                    "player2": normal_row["player2"],
+                    "table_size": normal_row["table_size"],
+                    "score1": "2",
+                    "score2": "1",
+                    "score_draws": "0",
+                    "current_round": "1",
+                    "dropout1": "false",
+                    "dropout2": "false",
+                },
+                follow_redirects=False,
+            )
+
+            submitted = [{"table": row["table"], "player1": row["player1"], "player2": row["player2"]} for row in rows]
+            save_response = client.post(
+                "/round/1/save_pairings",
+                data={"matches_json": json.dumps(submitted)},
+                follow_redirects=False,
+            )
+            self.assertEqual(save_response.status_code, 400)
+            body = save_response.get_json()
+            self.assertIn("bereits gestartet", body.get("message", ""))
+
     def test_prepare_route_removed(self):
         with temp_cwd():
             app = create_app()
@@ -216,12 +349,12 @@ class TableBuilderFlowTests(unittest.TestCase):
 
     def test_index_includes_known_player_autocomplete_and_fuzzy_logic(self):
         with temp_cwd():
-            os.makedirs("data/players", exist_ok=True)
-            with open("data/players/players_data.json", "w", encoding="utf-8") as f:
-                json.dump({"Enrique": {"power_nine_count": 0}, "Chrigi": {"power_nine_count": 0}}, f)
-
             app = create_app()
             client = app.test_client()
+            with app.app_context():
+                db.session.add(Player(name="Enrique", normalized_name=normalize_name("Enrique")))
+                db.session.add(Player(name="Chrigi", normalized_name=normalize_name("Chrigi")))
+                db.session.commit()
             response = client.get("/")
             self.assertEqual(response.status_code, 200)
             html = response.get_data(as_text=True)
@@ -232,18 +365,17 @@ class TableBuilderFlowTests(unittest.TestCase):
 
     def test_index_hides_deleted_players_from_autocomplete_and_fuzzy_source(self):
         with temp_cwd():
-            os.makedirs("data/players", exist_ok=True)
-            with open("data/players/players_data.json", "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "Enrique": {"power_nine_count": 0},
-                        "DELETED_PLAYER_123abc": {"power_nine_count": 0},
-                    },
-                    f,
-                )
-
             app = create_app()
             client = app.test_client()
+            with app.app_context():
+                db.session.add(Player(name="Enrique", normalized_name=normalize_name("Enrique")))
+                db.session.add(
+                    Player(
+                        name="DELETED_PLAYER_123abc",
+                        normalized_name=normalize_name("DELETED_PLAYER_123abc"),
+                    )
+                )
+                db.session.commit()
             response = client.get("/")
             self.assertEqual(response.status_code, 200)
             html = response.get_data(as_text=True)
@@ -252,18 +384,17 @@ class TableBuilderFlowTests(unittest.TestCase):
 
     def test_players_list_hides_deleted_players(self):
         with temp_cwd():
-            os.makedirs("data/players", exist_ok=True)
-            with open("data/players/players_data.json", "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "Valentin": {"power_nine_count": 0},
-                        "DELETED_PLAYER_deadbe": {"power_nine_count": 0},
-                    },
-                    f,
-                )
-
             app = create_app()
             client = app.test_client()
+            with app.app_context():
+                db.session.add(Player(name="Valentin", normalized_name=normalize_name("Valentin")))
+                db.session.add(
+                    Player(
+                        name="DELETED_PLAYER_deadbe",
+                        normalized_name=normalize_name("DELETED_PLAYER_deadbe"),
+                    )
+                )
+                db.session.commit()
             response = client.get("/players")
             self.assertEqual(response.status_code, 200)
             html = response.get_data(as_text=True)

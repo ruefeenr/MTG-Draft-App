@@ -1,12 +1,12 @@
 import os
 import json
-from typing import Dict, Any, Set
+from typing import Dict, Any, Set, Tuple
 
 from flask import has_app_context
 from sqlalchemy import or_
 
 from .db import db
-from .models import Match, Player, PlayerPowerNine, Round, Tournament
+from .models import Match, Player, PlayerPowerNine, Round, Tournament, TournamentPlayer
 from .services.normalize import normalize_name
 from .tournament_groups import load_tournament_meta, normalize_cube_id, normalize_group_id
 
@@ -41,6 +41,19 @@ def _parse_legacy_score(value, default=0):
             return int(float(text))
         except (TypeError, ValueError):
             return None
+
+
+def _name_or_none(value):
+    text = str(value or "").strip()
+    return text or None
+
+
+def _match_player_name(match: Match, slot: int) -> str:
+    if slot == 1:
+        relation = match.player1.name if match.player1 else None
+        return relation or _name_or_none(match.player1_name_snapshot)
+    relation = match.player2.name if match.player2 else None
+    return relation or _name_or_none(match.player2_name_snapshot)
 
 
 def get_players_data_path() -> str:
@@ -106,43 +119,78 @@ def delete_player(player_name: str) -> bool:
     row = Player.query.filter_by(normalized_name=normalized).first()
     if row is None:
         return True
-    # Spieler in Matches nicht physisch entfernen, stattdessen umbenennen.
-    row.name = f"DELETED_PLAYER_{row.id[:6]}"
-    row.normalized_name = normalize_name(row.name)
+
+    # Historische Lesbarkeit sichern: Namen als Snapshot in Matches einfrieren.
+    matches = Match.query.filter(or_(Match.player1_id == row.id, Match.player2_id == row.id)).all()
+    for match in matches:
+        if match.player1_id == row.id and not _name_or_none(match.player1_name_snapshot):
+            match.player1_name_snapshot = row.name
+        if match.player2_id == row.id and not _name_or_none(match.player2_name_snapshot):
+            match.player2_name_snapshot = row.name
+        if match.player1_id == row.id:
+            match.player1_id = None
+        if match.player2_id == row.id:
+            match.player2_id = None
+
+    # Turnierzuordnungen und turnierbezogene Kartenreferenzen aufräumen.
+    TournamentPlayer.query.filter_by(player_id=row.id).delete(synchronize_session=False)
+    PlayerPowerNine.query.filter_by(player_id=row.id).delete(synchronize_session=False)
+    db.session.delete(row)
     db.session.commit()
     return True
 
 
 def get_all_players() -> Set[str]:
-    players = set()
     if has_app_context():
-        players = {row.name for row in Player.query.all() if row.name and not _is_deleted_player_name(row.name)}
-    legacy_players_file = get_players_data_path()
-    if os.path.exists(legacy_players_file):
-        try:
-            with open(legacy_players_file, "r", encoding="utf-8") as f:
-                players_data = json.load(f)
-                players.update(name for name in players_data.keys() if name and not _is_deleted_player_name(name))
-        except Exception:
-            pass
-    # Fallback: falls legacy-Dateien existieren, Namen ergänzen.
-    results_file = os.path.join("tournament_data", "results.csv")
-    if os.path.exists(results_file):
-        try:
-            import csv
+        # DB-only im aktiven UI-Pfad: verhindert Legacy-Reintroduction gelöschter Spieler
+        # und spart teure Dateiscans bei jedem Request.
+        return {row.name for row in Player.query.all() if row.name and not _is_deleted_player_name(row.name)}
+    return set()
 
-            with open(results_file, "r", newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    p1 = row.get("Player 1")
-                    p2 = row.get("Player 2")
-                    if p1 and not _is_deleted_player_name(p1):
-                        players.add(p1)
-                    if p2 and p2 != "BYE" and not _is_deleted_player_name(p2):
-                        players.add(p2)
-        except Exception:
-            pass
-    return players
+
+def get_played_group_and_cube_ids() -> Tuple[Set[str], Set[str]]:
+    """
+    Liefert alle Gruppen-/Cube-IDs, in denen mindestens ein Match tatsächlich
+    gespielt wurde (Score eingetragen).
+    """
+    played_group_ids: Set[str] = set()
+    played_cube_ids: Set[str] = set()
+
+    if has_app_context():
+        rows = (
+            db.session.query(Tournament.group_id, Tournament.cube_id)
+            .join(Round, Round.tournament_id == Tournament.id)
+            .join(Match, Match.round_id == Round.id)
+            .filter(Match.score1.isnot(None), Match.score2.isnot(None))
+            .distinct()
+            .all()
+        )
+        for group_id, cube_id in rows:
+            played_group_ids.add(normalize_group_id(group_id))
+            played_cube_ids.add(normalize_cube_id(cube_id))
+        return played_group_ids, played_cube_ids
+
+    # Legacy fallback (nur wenn kein App-Context vorhanden ist)
+    import csv
+
+    tournament_meta = load_tournament_meta()
+    results_file = os.path.join("tournament_data", "results.csv")
+    if not os.path.exists(results_file):
+        return played_group_ids, played_cube_ids
+
+    with open(results_file, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            score1 = _parse_legacy_score(row.get("Score 1", 0))
+            score2 = _parse_legacy_score(row.get("Score 2", 0))
+            if score1 is None or score2 is None:
+                continue
+            tournament_id = row.get("Tournament", "")
+            payload = tournament_meta.get(tournament_id, {})
+            played_group_ids.add(normalize_group_id(payload.get("group_id")))
+            played_cube_ids.add(normalize_cube_id(payload.get("cube_id")))
+
+    return played_group_ids, played_cube_ids
 
 
 def _empty_stats():
@@ -266,8 +314,8 @@ def get_player_statistics(player_name: str, group_id: str = None, cube_filter: s
     normalized_player_name = normalize_name(player_name)
     player = Player.query.filter_by(normalized_name=normalized_player_name).first()
     if player is None:
-        # Falls DB leer ist, auf Legacy-Dateien zurückfallen.
-        return _legacy_file_based_stats(player_name, group_id=group_id, cube_filter=cube_filter)
+        # Kein Legacy-Fallback im aktiven UI-Pfad: gelöschte Spieler sollen nicht zurückkommen.
+        return stats
 
     normalized_group_id = normalize_group_id(group_id) if group_id else None
     selected_cube_filter = (cube_filter or "all").strip().lower()
@@ -297,14 +345,16 @@ def get_player_statistics(player_name: str, group_id: str = None, cube_filter: s
             my_score = match.score1 or 0
             opp_score = match.score2 or 0
             draws = match.score_draws or 0
-            if match.player2 and match.player2.name != "BYE" and not _is_deleted_player_name(match.player2.name):
-                opponents.add(match.player2.name)
+            opponent_name = _match_player_name(match, slot=2)
+            if opponent_name and opponent_name != "BYE" and not _is_deleted_player_name(opponent_name):
+                opponents.add(opponent_name)
         else:
             my_score = match.score2 or 0
             opp_score = match.score1 or 0
             draws = match.score_draws or 0
-            if match.player1 and not _is_deleted_player_name(match.player1.name):
-                opponents.add(match.player1.name)
+            opponent_name = _match_player_name(match, slot=1)
+            if opponent_name and not _is_deleted_player_name(opponent_name):
+                opponents.add(opponent_name)
 
         stats["games_won"] += my_score
         stats["games_lost"] += opp_score

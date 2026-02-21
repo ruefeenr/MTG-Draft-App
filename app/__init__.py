@@ -8,6 +8,7 @@ import logging
 import json
 from dotenv import load_dotenv
 from sqlalchemy.pool import NullPool
+from sqlalchemy.exc import ProgrammingError
 from .db import db, migrate
 
 # Lade Umgebungsvariablen aus .env Datei
@@ -58,6 +59,11 @@ def _get_app_secret_key():
 def create_app():
     global _LAST_CREATED_APP
     app = Flask(__name__)
+    schema_upgrade_hint = (
+        "Datenbank-Schema ist veraltet. Bitte Migration ausführen: "
+        "flask --app run.py db upgrade"
+    )
+    app.config["DB_SCHEMA_OUTDATED"] = False
     
     # Stabiler Secret Key (env oder persistiert in instance/)
     app.config['SECRET_KEY'] = _get_app_secret_key()
@@ -110,8 +116,15 @@ def create_app():
     # Tabellen bei Bedarf automatisch anlegen und Defaults sicherstellen.
     with app.app_context():
         db.create_all()
-        ensure_default_groups()
-        ensure_default_cubes()
+        try:
+            ensure_default_groups()
+            ensure_default_cubes()
+        except ProgrammingError:
+            # Transitional safety: if DB schema is behind the current models,
+            # allow app creation so `flask db upgrade` can be executed.
+            db.session.rollback()
+            app.config["DB_SCHEMA_OUTDATED"] = True
+            app.logger.error(schema_upgrade_hint)
 
     @app.context_processor
     def inject_csrf_token():
@@ -123,6 +136,21 @@ def create_app():
 
     @app.before_request
     def security_before_request():
+        if app.config.get("DB_SCHEMA_OUTDATED"):
+            payload = {
+                "success": False,
+                "code": "DB_SCHEMA_OUTDATED",
+                "message": schema_upgrade_hint,
+            }
+            if request.path.startswith("/api/"):
+                return jsonify(payload), 503
+            return (
+                "<h1>Datenbank-Schema veraltet</h1>"
+                f"<p>{schema_upgrade_hint}</p>",
+                503,
+                {"Content-Type": "text/html; charset=utf-8"},
+            )
+
         g.request_started_at = time.time()
         g.request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
         is_pytest = bool(os.environ.get("PYTEST_CURRENT_TEST"))

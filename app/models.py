@@ -30,6 +30,7 @@ class TournamentGroup(db.Model):
     name = db.Column(db.String(80), nullable=False, unique=True)
     normalized_name = db.Column(db.String(120), nullable=False, unique=True, index=True)
     is_system = db.Column(db.Boolean, default=False, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
 
@@ -40,6 +41,7 @@ class Cube(db.Model):
     name = db.Column(db.String(80), nullable=False, unique=True)
     normalized_name = db.Column(db.String(120), nullable=False, unique=True, index=True)
     is_system = db.Column(db.Boolean, default=False, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
 
@@ -127,8 +129,10 @@ class Match(db.Model):
     table_number = db.Column(db.Integer, nullable=False)
     table_size = db.Column(db.Integer, nullable=False)
     group_key = db.Column(db.String(32), nullable=False)
-    player1_id = db.Column(db.String(36), db.ForeignKey("players.id"), nullable=False)
+    player1_id = db.Column(db.String(36), db.ForeignKey("players.id"), nullable=True)
     player2_id = db.Column(db.String(36), db.ForeignKey("players.id"), nullable=True)
+    player1_name_snapshot = db.Column(db.String(80), nullable=True)
+    player2_name_snapshot = db.Column(db.String(80), nullable=True)
     is_bye = db.Column(db.Boolean, default=False, nullable=False)
     score1 = db.Column(db.Integer, nullable=True)
     score2 = db.Column(db.Integer, nullable=True)

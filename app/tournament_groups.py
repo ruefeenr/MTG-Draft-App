@@ -204,18 +204,22 @@ def load_tournament_meta():
                     "cube_id": cube_id,
                     "cube_name": get_cube_name(cube_id),
                     "created_at": payload.get("created_at") or _utcnow_iso(),
+                    "pairing_mode": payload.get("pairing_mode"),
                 }
         except Exception:
             pass
 
     rows = _call_with_app_context(lambda: Tournament.query.all()) or []
     for row in rows:
-        data[row.id] = {
+        row_id = str(row.id)
+        existing = data.get(row_id, {})
+        data[row_id] = {
             "group_id": row.group_id,
             "group_name": get_group_name(row.group_id),
             "cube_id": row.cube_id,
             "cube_name": get_cube_name(row.cube_id),
             "created_at": row.created_at.isoformat() if row.created_at else _utcnow_iso(),
+            "pairing_mode": existing.get("pairing_mode"),
         }
     if changed:
         save_tournament_meta(data)

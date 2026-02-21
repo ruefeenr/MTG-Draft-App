@@ -121,11 +121,11 @@
             <a href="{{ url_for('main.index') }}" class="home-link">Zur Startseite</a>
         </div>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% with messages = get_flashed_messages(with_categories=true, category_filter=['success', 'error']) %}
             {% if messages %}
                 <div class="card">
                     {% for category, message in messages %}
-                        <div class="flash {{ category if category in ['success', 'error'] else 'success' }}">{{ message }}</div>
+                        <div class="flash {{ category }}">{{ message }}</div>
                     {% endfor %}
                 </div>
             {% endif %}
@@ -138,7 +138,6 @@
                 <input type="text" name="cube_name" maxlength="80" required placeholder="z.B. Legacy Cube">
                 <button type="submit" class="btn">Cube erstellen</button>
             </form>
-            <div class="hint">Die ID wird automatisch als stabiler Slug erzeugt.</div>
         </div>
 
         <div class="card">
@@ -155,7 +154,7 @@
                             <input type="text" name="cube_name" maxlength="80" required value="{{ cube.name }}">
                             <button type="submit" class="btn">Umbenennen</button>
                         </form>
-                        <form method="POST" action="{{ url_for('main.delete_cube') }}" onsubmit="return confirm('Cube wirklich löschen? Zugeordnete Turniere fallen auf Vintage zurück.');">
+                        <form method="POST" action="{{ url_for('main.delete_cube') }}" onsubmit="return confirm('Cube wirklich löschen?');">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="cube_id" value="{{ cube.id }}">
                             <button type="submit" class="btn btn-delete">Löschen</button>

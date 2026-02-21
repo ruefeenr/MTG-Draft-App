@@ -4,7 +4,7 @@ import random
 import os
 import csv
 from datetime import datetime
-from collections import defaultdict
+from collections import Counter, defaultdict
 import json
 import hashlib
 import hmac
@@ -13,6 +13,7 @@ from .services.players import get_or_create_player, list_player_names
 from .services.tournaments import set_tournament_status
 from .models import Match, Player, PlayerPowerNine, Round, Tournament
 from .db import db
+from .services.normalize import normalize_name
 import unicodedata
 from .tournament_groups import (
     DEFAULT_GROUP_ID,
@@ -31,12 +32,12 @@ from .tournament_groups import (
     is_valid_group_id,
     load_allowed_cubes,
     load_tournament_groups,
-    reassign_cube_in_meta,
-    reassign_group_in_meta,
     rename_tournament_cube,
     rename_tournament_group,
     remove_tournament_group,
     set_tournament_group,
+    load_tournament_meta,
+    save_tournament_meta,
 )
 
 main = Blueprint('main', __name__)
@@ -44,10 +45,41 @@ main = Blueprint('main', __name__)
 TOURNAMENT_STATUS_RUNNING = "running"
 TOURNAMENT_STATUS_ENDED = "ended"
 AUTH_EXEMPT_ENDPOINTS = {"main.login", "main.logout", "static", "healthz"}
+PAIRING_MODE_AUTO = "auto"
+PAIRING_MODE_MANUAL = "manual"
+VALID_PAIRING_MODES = {PAIRING_MODE_AUTO, PAIRING_MODE_MANUAL}
 
 
 def _is_deleted_player_name(name):
     return isinstance(name, str) and name.startswith("DELETED_PLAYER")
+
+
+def _normalize_pairing_mode(value):
+    mode = str(value or "").strip().lower()
+    if mode in VALID_PAIRING_MODES:
+        return mode
+    return PAIRING_MODE_AUTO
+
+
+def _get_tournament_pairing_mode(tournament_id):
+    if not tournament_id:
+        return PAIRING_MODE_AUTO
+    meta = load_tournament_meta()
+    payload = meta.get(tournament_id, {})
+    return _normalize_pairing_mode(payload.get("pairing_mode"))
+
+
+def _set_tournament_pairing_mode(tournament_id, pairing_mode):
+    if not tournament_id:
+        return False
+    normalized_mode = _normalize_pairing_mode(pairing_mode)
+    meta = load_tournament_meta()
+    payload = meta.get(tournament_id, {}).copy()
+    payload["pairing_mode"] = normalized_mode
+    payload.setdefault("created_at", datetime.now().isoformat())
+    meta[tournament_id] = payload
+    save_tournament_meta(meta)
+    return True
 
 
 def _is_authenticated():
@@ -471,13 +503,8 @@ def rename_group():
 @main.route("/groups/delete", methods=["POST"])
 def delete_group():
     group_id = request.form.get("group_id", "")
-    # Referenzen in Turnier-Metadaten zuerst auf Default setzen.
-    reassigned_count = reassign_group_in_meta(group_id, DEFAULT_GROUP_ID)
     success, message = delete_tournament_group(group_id)
-    if success and reassigned_count > 0:
-        flash(f"{message} {reassigned_count} Turnier(e) wurden auf 'Unkategorisiert' umgestellt.", "success")
-    else:
-        flash(message, "success" if success else "error")
+    flash(message, "success" if success else "error")
     return redirect(url_for("main.manage_groups"))
 
 
@@ -511,13 +538,8 @@ def rename_cube():
 @main.route("/cubes/delete", methods=["POST"])
 def delete_cube():
     cube_id = request.form.get("cube_id", "")
-    # Referenzen in Turnier-Metadaten zuerst auf Vintage setzen.
-    reassigned_count = reassign_cube_in_meta(cube_id, "vintage")
     success, message = delete_tournament_cube(cube_id)
-    if success and reassigned_count > 0:
-        flash(f"{message} {reassigned_count} Turnier(e) wurden auf 'Vintage' umgestellt.", "success")
-    else:
-        flash(message, "success" if success else "error")
+    flash(message, "success" if success else "error")
     return redirect(url_for("main.manage_cubes"))
 
 @main.route("/load_tournament/<tournament_id>", methods=["GET"])
@@ -649,13 +671,14 @@ def _stable_shuffle(values, tournament_id, stage, round_number=None):
     rng.shuffle(shuffled)
     return shuffled
 
-def _create_started_tournament(players, table_size, group_id, cube_id, set_session_state=True):
+def _create_started_tournament(players, table_size, group_id, cube_id, pairing_mode=PAIRING_MODE_AUTO, set_session_state=True):
     """
     Erstellt ein laufendes Turnier inkl. Runde 1 aus genau einem Tischblock.
     Bei ungerader Spielerzahl wird automatisch ein BYE-Match angelegt.
     """
     tournament_id = str(uuid.uuid4())
     set_tournament_group(tournament_id, group_id, cube_id)
+    _set_tournament_pairing_mode(tournament_id, pairing_mode)
     for player in players:
         get_or_create_player(player)
 
@@ -770,6 +793,8 @@ def _sync_round_to_db(tournament_id, round_number, match_list):
                 group_key=(match.get("group_key") or ""),
                 player1_id=p1.id,
                 player2_id=p2.id if p2 else None,
+                player1_name_snapshot=player1_name or None,
+                player2_name_snapshot=(player2_name if player2_name and player2_name != "BYE" else None),
                 is_bye=(player2_name == "BYE"),
                 score1=int(match["score1"]) if str(match.get("score1", "")).strip() != "" else None,
                 score2=int(match["score2"]) if str(match.get("score2", "")).strip() != "" else None,
@@ -814,6 +839,7 @@ def start_tables():
     payload, payload_error = _extract_table_builder_payload()
     if payload_error:
         return render_index_page(error=payload_error)
+    selected_pairing_mode = _normalize_pairing_mode(request.form.get("pairing_mode", PAIRING_MODE_AUTO))
 
     valid_group_ids = {group["id"] for group in load_tournament_groups()}
     valid_cube_ids = {cube["id"] for cube in load_allowed_cubes()}
@@ -883,6 +909,7 @@ def start_tables():
                 table["table_size"],
                 table["group_id"],
                 table["cube_id"],
+                pairing_mode=selected_pairing_mode,
                 set_session_state=False,
             )
         )
@@ -892,11 +919,8 @@ def start_tables():
     session["leg_players_set"] = []
     session["tournament_ended"] = False
     session["player_groups"] = primary["player_groups"]
+    session["pairing_mode"] = selected_pairing_mode
 
-    summary = []
-    for idx, created in enumerate(created_tournaments, start=1):
-        summary.append(f"Tisch {idx}: {created['tournament_id'][:8]} ({created['player_count']} Spieler)")
-    flash(f"{len(created_tournaments)} Turnier(e) gestartet. " + "; ".join(summary))
     return redirect(url_for("main.show_round", round_number=1))
 
 @main.route("/pair", methods=["POST"])
@@ -905,6 +929,7 @@ def pair():
     if not is_valid_group_id(selected_group_id):
         selected_group_id = DEFAULT_GROUP_ID
     selected_cube = (request.form.get("tournament_cube") or "").strip()
+    selected_pairing_mode = _normalize_pairing_mode(request.form.get("pairing_mode", PAIRING_MODE_AUTO))
     if not is_valid_cube_id(selected_cube):
         return render_index_page(
             error="Ungültiger Cube. Bitte wählen Sie einen erlaubten Cube aus.",
@@ -963,7 +988,9 @@ def pair():
         session["tournament_id"] = tournament_id
         session["leg_players_set"] = []
         session["tournament_ended"] = False
+        session["pairing_mode"] = selected_pairing_mode
         set_tournament_group(tournament_id, selected_group_id, selected_cube)
+        _set_tournament_pairing_mode(tournament_id, selected_pairing_mode)
         for player in players:
             get_or_create_player(player)
         data_dir = os.path.join("data", tournament_id)
@@ -1708,6 +1735,118 @@ def next_round():
     # Leite zur show_round Route weiter
     return redirect(url_for('main.show_round', round_number=next_round_number))
 
+
+@main.route("/tournament/pairing_mode", methods=["POST"])
+def update_pairing_mode():
+    tournament_id = session.get("tournament_id")
+    if not tournament_id:
+        return jsonify({"success": False, "message": "Kein aktives Turnier gefunden."}), 400
+    pairing_mode = _normalize_pairing_mode(request.form.get("pairing_mode"))
+    _set_tournament_pairing_mode(tournament_id, pairing_mode)
+    session["pairing_mode"] = pairing_mode
+    return jsonify({"success": True, "pairing_mode": pairing_mode})
+
+
+@main.route("/round/<int:round_number>/save_pairings", methods=["POST"])
+def save_round_pairings(round_number):
+    tournament_id = session.get("tournament_id")
+    guard = _require_mutable_tournament(tournament_id, as_json=True)
+    if guard is not None:
+        return guard
+    if not tournament_id:
+        return jsonify({"success": False, "message": "Kein aktives Turnier gefunden."}), 400
+
+    round_file = os.path.join("data", tournament_id, "rounds", f"round_{round_number}.csv")
+    if not os.path.exists(round_file):
+        return jsonify({"success": False, "message": "Runde wurde nicht gefunden."}), 404
+    if not is_round_unplayed(round_file):
+        return jsonify({"success": False, "message": "Runde ist bereits gestartet und kann nicht mehr manuell gepaart werden."}), 400
+
+    raw_matches = request.form.get("matches_json", "")
+    payload_matches = []
+    if raw_matches:
+        try:
+            payload_matches = json.loads(raw_matches)
+        except json.JSONDecodeError:
+            return jsonify({"success": False, "message": "Ungültige Pairing-Daten."}), 400
+    else:
+        payload_matches = (request.get_json(silent=True) or {}).get("matches", [])
+
+    if not isinstance(payload_matches, list) or not payload_matches:
+        return jsonify({"success": False, "message": "Keine Pairing-Daten übergeben."}), 400
+
+    with open(round_file, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        original_rows = list(reader)
+        fieldnames = reader.fieldnames or [
+            "table",
+            "player1",
+            "player2",
+            "score1",
+            "score2",
+            "score_draws",
+            "dropout1",
+            "dropout2",
+            "table_size",
+            "group_key",
+        ]
+
+    original_by_table = {str((row.get("table") or "").strip()): row for row in original_rows}
+    submitted_by_table = {}
+    for row in payload_matches:
+        if not isinstance(row, dict):
+            return jsonify({"success": False, "message": "Ungültige Pairing-Zeile."}), 400
+        table = str((row.get("table") or "").strip())
+        player1 = str((row.get("player1") or "").strip())
+        player2 = str((row.get("player2") or "").strip())
+        if not table or not player1 or not player2:
+            return jsonify({"success": False, "message": "Unvollständige Pairing-Daten."}), 400
+        if player1 == player2:
+            return jsonify({"success": False, "message": f"Tisch {table}: Ein Spieler kann nicht gegen sich selbst gepaart sein."}), 400
+        submitted_by_table[table] = {"table": table, "player1": player1, "player2": player2}
+
+    if set(submitted_by_table.keys()) != set(original_by_table.keys()):
+        return jsonify({"success": False, "message": "Pairing-Daten enthalten falsche Tische."}), 400
+
+    original_players = []
+    submitted_players = []
+    for table, original in original_by_table.items():
+        original_p1 = (original.get("player1") or "").strip()
+        original_p2 = (original.get("player2") or "").strip()
+        submitted_p1 = submitted_by_table[table]["player1"]
+        submitted_p2 = submitted_by_table[table]["player2"]
+
+        if original_p2 == "BYE":
+            if submitted_p2 != "BYE" or submitted_p1 != original_p1:
+                return jsonify({"success": False, "message": f"Tisch {table}: BYE-Paarungen dürfen nicht manuell geändert werden."}), 400
+            continue
+
+        if submitted_p1 == "BYE" or submitted_p2 == "BYE":
+            return jsonify({"success": False, "message": f"Tisch {table}: BYE kann nicht in normale Paarungen gezogen werden."}), 400
+
+        original_players.extend([original_p1, original_p2])
+        submitted_players.extend([submitted_p1, submitted_p2])
+
+    if Counter(original_players) != Counter(submitted_players):
+        return jsonify({"success": False, "message": "Spielerzuordnung ist ungültig. Bitte tausche nur vorhandene Spieler."}), 400
+
+    updated_rows = []
+    for original in original_rows:
+        table = str((original.get("table") or "").strip())
+        submitted = submitted_by_table[table]
+        row_copy = dict(original)
+        row_copy["player1"] = submitted["player1"]
+        row_copy["player2"] = submitted["player2"]
+        updated_rows.append(row_copy)
+
+    with open(round_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(updated_rows)
+
+    _sync_round_to_db(tournament_id, round_number, updated_rows)
+    return jsonify({"success": True, "message": "Paarungen wurden gespeichert."})
+
 @main.route("/start_tournament", methods=["GET", "POST"])
 def start_tournament():
     # GET aus alten Links: keine direkte Aktion ohne explizite Bestätigung
@@ -1801,10 +1940,6 @@ def end_tournament():
                     try:
                         os.remove(latest_round_file)
                         total_rounds -= 1
-                        flash(
-                            "Die letzte Runde war noch ungespielt und wurde verworfen. "
-                            "Das Turnier wurde mit der vorherigen Runde beendet."
-                        )
                     except OSError as e:
                         flash(f"Turnier kann nicht beendet werden: Letzte Runde konnte nicht verworfen werden ({e}).")
                         return redirect(url_for("main.show_round", round_number=total_rounds))
@@ -1940,6 +2075,8 @@ def show_round(round_number):
     # Prüfe, ob das Turnier beendet ist - zweifache Prüfung für Konsistenz
     tournament_ended = check_tournament_status(tournament_id)
     is_vintage = is_vintage_tournament(tournament_id)
+    round_is_unplayed = is_round_unplayed(round_file)
+    current_pairing_mode = _get_tournament_pairing_mode(tournament_id)
     
     # Lade Power-Nine-Daten nur für Vintage-Turniere
     all_players_data = {}
@@ -1984,6 +2121,8 @@ def show_round(round_number):
         all_players_data=all_players_data,
         is_vintage_tournament=is_vintage,
         running_tournaments=get_active_tournaments(limit=50),
+        round_is_unplayed=round_is_unplayed,
+        current_pairing_mode=current_pairing_mode,
     )
 
 def calculate_opponents_match_percentage(player, stats):
@@ -2236,18 +2375,28 @@ def delete_tournament(tournament_id):
 def players_list():
     """Zeigt eine Übersichtsseite mit allen Spielern"""
     # Importiere das player_stats Modul
-    from .player_stats import get_all_players, load_player_data, get_player_statistics
+    from .player_stats import (
+        get_all_players,
+        load_player_data,
+        get_player_statistics,
+        get_played_group_and_cube_ids,
+    )
 
-    tournament_groups = load_tournament_groups()
+    played_group_ids, played_cube_ids = get_played_group_and_cube_ids()
+    tournament_groups = [g for g in load_tournament_groups() if g["id"] in played_group_ids]
     valid_group_ids = {group["id"] for group in tournament_groups}
-    cube_filter_options = [{"id": "all", "name": "Alle Cubes"}] + load_allowed_cubes()
+    cube_filter_options = [{"id": "all", "name": "Alle Cubes"}] + [
+        cube for cube in load_allowed_cubes() if cube["id"] in played_cube_ids
+    ]
     valid_cube_ids = {cube["id"] for cube in cube_filter_options if cube["id"] != "all"}
     stats_scope = request.args.get("scope", "global")
     selected_group_id = request.args.get("group_id", DEFAULT_GROUP_ID)
     selected_cube_id = (request.args.get("cube", "all") or "all").strip().lower()
     if selected_group_id not in valid_group_ids:
-        selected_group_id = DEFAULT_GROUP_ID
+        selected_group_id = tournament_groups[0]["id"] if tournament_groups else DEFAULT_GROUP_ID
     if stats_scope != "group":
+        stats_scope = "global"
+    if stats_scope == "group" and not valid_group_ids:
         stats_scope = "global"
     if selected_cube_id != "all" and selected_cube_id not in valid_cube_ids:
         selected_cube_id = "all"
@@ -2271,6 +2420,10 @@ def players_list():
             group_id=stats_group_id,
             cube_filter=selected_cube_id,
         )
+        has_active_match_filter = stats_scope == "group" or selected_cube_id != "all"
+        if has_active_match_filter and player_stats.get("total_matches", 0) <= 0:
+            # Nur Spieler zeigen, die im aktiven Filter wirklich Matches haben.
+            continue
         
         # Power Nine wird nur im Vintage-Filter angezeigt
         power_nine_count = player_stats.get("power_nine_total", 0) if selected_cube_id == "vintage" else 0
@@ -2304,24 +2457,39 @@ def players_list():
 @main.route("/player/<player_name>")
 def player_profile(player_name):
     """Zeigt das Profil eines Spielers an"""
-    # Verhindere Zugriff auf gelöschte Spieler
+    # Verhindere Zugriff auf gelöschte Spieler (legacy marker)
     if _is_deleted_player_name(player_name):
+        flash("Dieser Spieler existiert nicht mehr.")
+        return redirect(url_for('main.players_list'))
+
+    # Hard-delete Guard: Profile nur für aktuell existierende DB-Spieler rendern.
+    if Player.query.filter_by(normalized_name=normalize_name(player_name)).first() is None:
         flash("Dieser Spieler existiert nicht mehr.")
         return redirect(url_for('main.players_list'))
     
     # Importiere das player_stats Modul
-    from .player_stats import load_player_data, get_player_statistics, POWER_NINE
+    from .player_stats import (
+        load_player_data,
+        get_player_statistics,
+        get_played_group_and_cube_ids,
+        POWER_NINE,
+    )
 
-    tournament_groups = load_tournament_groups()
-    cube_filter_options = [{"id": "all", "name": "Alle Cubes"}] + load_allowed_cubes()
+    played_group_ids, played_cube_ids = get_played_group_and_cube_ids()
+    tournament_groups = [g for g in load_tournament_groups() if g["id"] in played_group_ids]
+    cube_filter_options = [{"id": "all", "name": "Alle Cubes"}] + [
+        cube for cube in load_allowed_cubes() if cube["id"] in played_cube_ids
+    ]
     valid_group_ids = {group["id"] for group in tournament_groups}
     valid_cube_ids = {cube["id"] for cube in cube_filter_options if cube["id"] != "all"}
     stats_scope = request.args.get("scope", "global")
     selected_group_id = request.args.get("group_id", DEFAULT_GROUP_ID)
     selected_cube_id = (request.args.get("cube", "all") or "all").strip().lower()
     if selected_group_id not in valid_group_ids:
-        selected_group_id = DEFAULT_GROUP_ID
+        selected_group_id = tournament_groups[0]["id"] if tournament_groups else DEFAULT_GROUP_ID
     if stats_scope != "group":
+        stats_scope = "global"
+    if stats_scope == "group" and not valid_group_ids:
         stats_scope = "global"
     if selected_cube_id != "all" and selected_cube_id not in valid_cube_ids:
         selected_cube_id = "all"
@@ -2353,13 +2521,7 @@ def player_profile(player_name):
 def delete_player(player_name):
     """Löscht einen Spieler aus allen Daten"""
     # Importiere das player_stats Modul
-    from .player_stats import delete_player, get_players_data_path, load_all_players_data
-    
-    # Debug-Logs
-    print(f"Versuche Spieler '{player_name}' aus allen Daten zu löschen")
-    print(f"Spielerdaten-Datei: {get_players_data_path()}")
-    players_data = load_all_players_data()
-    print(f"Vorhandene Spieler in players_data.json: {list(players_data.keys())}")
+    from .player_stats import delete_player
     
     # Lösche den Spieler aus allen Daten
     success = delete_player(player_name)

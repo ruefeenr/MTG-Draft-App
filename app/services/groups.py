@@ -28,6 +28,7 @@ def ensure_default_groups():
                     name=group_name,
                     normalized_name=normalized,
                     is_system=is_system,
+                    is_active=True,
                 )
             )
             changed = True
@@ -39,13 +40,21 @@ def ensure_default_groups():
             if is_system and not group.is_system:
                 group.is_system = True
                 changed = True
+            if not group.is_active:
+                group.is_active = True
+                changed = True
     if changed:
         db.session.commit()
 
 
 def list_groups():
     ensure_default_groups()
-    rows = TournamentGroup.query.order_by(TournamentGroup.id != DEFAULT_GROUP_ID, TournamentGroup.name.asc()).all()
+    rows = (
+        TournamentGroup.query
+        .filter(TournamentGroup.is_active.is_(True))
+        .order_by(TournamentGroup.id != DEFAULT_GROUP_ID, TournamentGroup.name.asc())
+        .all()
+    )
     return [{"id": row.id, "name": row.name} for row in rows]
 
 
@@ -56,17 +65,22 @@ def get_group_map():
 def is_valid_group_id(group_id):
     if not group_id or not isinstance(group_id, str):
         return False
-    return group_id in get_group_map()
+    row = db.session.get(TournamentGroup, group_id)
+    return bool(row and row.is_active)
 
 
 def normalize_group_id(group_id):
-    if is_valid_group_id(group_id):
+    if group_id and isinstance(group_id, str) and db.session.get(TournamentGroup, group_id):
         return group_id
     return DEFAULT_GROUP_ID
 
 
 def get_group_name(group_id):
-    return get_group_map().get(normalize_group_id(group_id), DEFAULT_GROUP_NAME)
+    normalized_id = normalize_group_id(group_id)
+    row = db.session.get(TournamentGroup, normalized_id)
+    if row is not None and row.name:
+        return row.name
+    return DEFAULT_GROUP_NAME
 
 
 def _generate_unique_group_id(name):
@@ -90,7 +104,17 @@ def create_group(name):
     normalized = normalize_name(group_name)
     existing = TournamentGroup.query.filter_by(normalized_name=normalized).first()
     if existing:
-        return False, "Eine Gruppe mit diesem Namen existiert bereits.", None
+        if existing.is_active:
+            return False, "Eine Gruppe mit diesem Namen existiert bereits.", None
+        existing.name = group_name
+        existing.normalized_name = normalized
+        existing.is_active = True
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return False, "Gruppe konnte nicht gespeichert werden.", None
+        return True, f"Gruppe '{group_name}' wurde wieder aktiviert.", {"id": existing.id, "name": existing.name}
 
     group_id = _generate_unique_group_id(group_name)
     row = TournamentGroup(id=group_id, name=group_name, normalized_name=normalized, is_system=False)
@@ -118,6 +142,8 @@ def rename_group(group_id, new_name):
     ensure_default_groups()
     row = db.session.get(TournamentGroup, target_id)
     if row is None:
+        return False, "Gruppe wurde nicht gefunden."
+    if not row.is_active:
         return False, "Gruppe wurde nicht gefunden."
 
     normalized = normalize_name(target_name)
@@ -161,7 +187,9 @@ def delete_group(group_id):
     row = db.session.get(TournamentGroup, target_id)
     if row is None:
         return False, "Gruppe wurde nicht gefunden."
-    db.session.delete(row)
+    if not row.is_active:
+        return False, "Gruppe wurde nicht gefunden."
+    row.is_active = False
     try:
         db.session.commit()
     except IntegrityError:

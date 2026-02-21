@@ -24,7 +24,15 @@ def ensure_default_cubes():
         cube = db.session.get(Cube, cube_id)
         normalized = normalize_name(cube_name)
         if cube is None:
-            db.session.add(Cube(id=cube_id, name=cube_name, normalized_name=normalized, is_system=is_system))
+            db.session.add(
+                Cube(
+                    id=cube_id,
+                    name=cube_name,
+                    normalized_name=normalized,
+                    is_system=is_system,
+                    is_active=True,
+                )
+            )
             changed = True
         else:
             if cube.name != cube_name or cube.normalized_name != normalized:
@@ -34,13 +42,21 @@ def ensure_default_cubes():
             if is_system and not cube.is_system:
                 cube.is_system = True
                 changed = True
+            if not cube.is_active:
+                cube.is_active = True
+                changed = True
     if changed:
         db.session.commit()
 
 
 def list_cubes():
     ensure_default_cubes()
-    rows = Cube.query.order_by(Cube.id != DEFAULT_CUBE_ID, Cube.name.asc()).all()
+    rows = (
+        Cube.query
+        .filter(Cube.is_active.is_(True))
+        .order_by(Cube.id != DEFAULT_CUBE_ID, Cube.name.asc())
+        .all()
+    )
     return [{"id": row.id, "name": row.name} for row in rows]
 
 
@@ -55,17 +71,22 @@ def get_cube_name_to_id_map():
 def is_valid_cube_id(cube_id):
     if not cube_id or not isinstance(cube_id, str):
         return False
-    return cube_id in get_cube_map()
+    row = db.session.get(Cube, cube_id)
+    return bool(row and row.is_active)
 
 
 def normalize_cube_id(cube_id):
-    if is_valid_cube_id(cube_id):
+    if cube_id and isinstance(cube_id, str) and db.session.get(Cube, cube_id):
         return cube_id
     return DEFAULT_CUBE_ID
 
 
 def get_cube_name(cube_id):
-    return get_cube_map().get(normalize_cube_id(cube_id), DEFAULT_CUBE_NAME)
+    normalized_id = normalize_cube_id(cube_id)
+    row = db.session.get(Cube, normalized_id)
+    if row is not None and row.name:
+        return row.name
+    return DEFAULT_CUBE_NAME
 
 
 def normalize_cube_value(cube_value):
@@ -100,7 +121,17 @@ def create_cube(name):
     normalized = normalize_name(cube_name)
     existing = Cube.query.filter_by(normalized_name=normalized).first()
     if existing:
-        return False, "Ein Cube mit diesem Namen existiert bereits.", None
+        if existing.is_active:
+            return False, "Ein Cube mit diesem Namen existiert bereits.", None
+        existing.name = cube_name
+        existing.normalized_name = normalized
+        existing.is_active = True
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return False, "Cube konnte nicht gespeichert werden.", None
+        return True, f"Cube '{cube_name}' wurde wieder aktiviert.", {"id": existing.id, "name": existing.name}
 
     cube_id = _generate_unique_cube_id(cube_name)
     row = Cube(id=cube_id, name=cube_name, normalized_name=normalized, is_system=False)
@@ -128,6 +159,8 @@ def rename_cube(cube_id, new_name):
     ensure_default_cubes()
     row = db.session.get(Cube, target_id)
     if row is None:
+        return False, "Cube wurde nicht gefunden."
+    if not row.is_active:
         return False, "Cube wurde nicht gefunden."
 
     normalized = normalize_name(target_name)
@@ -168,7 +201,9 @@ def delete_cube(cube_id):
     row = db.session.get(Cube, target_id)
     if row is None:
         return False, "Cube wurde nicht gefunden."
-    db.session.delete(row)
+    if not row.is_active:
+        return False, "Cube wurde nicht gefunden."
+    row.is_active = False
     try:
         db.session.commit()
     except IntegrityError:

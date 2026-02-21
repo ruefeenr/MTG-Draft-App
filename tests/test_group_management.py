@@ -91,7 +91,7 @@ class GroupManagementTests(unittest.TestCase):
             html = duplicate_response.get_data(as_text=True)
             self.assertIn("existiert bereits", html)
 
-    def test_delete_group_reassigns_existing_tournaments_to_default(self):
+    def test_delete_group_hides_from_selection_without_recategorizing_tournament(self):
         with temp_cwd():
             app = create_app()
             client = app.test_client()
@@ -125,12 +125,18 @@ class GroupManagementTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
 
             meta = load_tournament_meta()
-            self.assertEqual(meta[tournament_id]["group_id"], DEFAULT_GROUP_ID)
-            self.assertEqual(meta[tournament_id]["group_name"], "Unkategorisiert")
+            self.assertEqual(meta[tournament_id]["group_id"], group_id)
+            self.assertEqual(meta[tournament_id]["group_name"], "Liga Winter 25/26")
 
             home = client.get("/")
             self.assertEqual(home.status_code, 200)
-            self.assertIn("Unkategorisiert", home.get_data(as_text=True))
+            home_html = home.get_data(as_text=True)
+            self.assertNotIn(f'<option value="{group_id}"', home_html)
+
+            groups_page = client.get("/groups")
+            self.assertEqual(groups_page.status_code, 200)
+            groups_html = groups_page.get_data(as_text=True)
+            self.assertNotIn(f'<input type="hidden" name="group_id" value="{group_id}">', groups_html)
 
     def test_default_group_cannot_be_deleted_or_renamed(self):
         with temp_cwd():

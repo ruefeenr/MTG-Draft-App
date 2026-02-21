@@ -770,6 +770,13 @@
             <div id="tablesContainer"></div>
 
             <div class="setup-section" style="margin-top: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                    <label for="pairingMode" style="font-weight: 600;">Pairing-Modus:</label>
+                    <select id="pairingMode" name="pairing_mode" class="builder-select" style="width: min(100%, 380px);">
+                        <option value="auto" selected>Automatisch</option>
+                        <option value="manual">Manuell (Swap in Paarungsansicht)</option>
+                    </select>
+                </div>
                 <div class="table-builder-actions">
                     <button type="button" id="addTableButton" class="start-button" style="background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);">
                         Weiteren Tisch hinzufügen

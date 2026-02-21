@@ -306,7 +306,7 @@ class TournamentCubeTests(unittest.TestCase):
             self.assertEqual(home.status_code, 200)
             self.assertIn("Legacy Cube", home.get_data(as_text=True))
 
-    def test_delete_custom_cube_reassigns_tournaments_to_vintage(self):
+    def test_delete_custom_cube_hides_from_selection_without_recategorizing_tournament(self):
         with temp_cwd():
             app = create_app()
             client = app.test_client()
@@ -340,8 +340,12 @@ class TournamentCubeTests(unittest.TestCase):
             self.assertEqual(delete_response.status_code, 200)
 
             meta = load_tournament_meta()
-            self.assertEqual(meta[tournament_id]["cube_id"], "vintage")
-            self.assertEqual(meta[tournament_id]["cube_name"], "Vintage")
+            self.assertEqual(meta[tournament_id]["cube_id"], legacy_cube["id"])
+            self.assertEqual(meta[tournament_id]["cube_name"], "Legacy Cube")
+
+            home = client.get("/")
+            self.assertEqual(home.status_code, 200)
+            self.assertNotIn("Legacy Cube", home.get_data(as_text=True))
 
     def test_can_rename_custom_cube_and_reject_duplicate_name(self):
         with temp_cwd():

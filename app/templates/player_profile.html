@@ -388,6 +388,8 @@
         
         .dialog-input {
             width: 100%;
+            box-sizing: border-box;
+            display: block;
             padding: 10px;
             margin-bottom: 15px;
             border: 2px solid rgba(74, 144, 226, 0.2);
@@ -631,10 +633,6 @@
                 </div>
             </div>
             
-            <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px; text-align: center;">
-                <p style="margin-bottom: 0; color: #6c757d;">Power Nine Karten werden während der Turniere zugewiesen. 
-                Hier siehst du eine Zusammenfassung aller Karten, die du in bisherigen Turnieren erhalten hast.</p>
-            </div>
         </div>
         {% endif %}
     </div>
@@ -647,11 +645,8 @@
                 Möchtest du den Spieler <strong><span id="playerToDeleteName"></span></strong> wirklich löschen?
                 <div class="warning-message">
                     <p><strong>Achtung:</strong> Diese Aktion kann nicht rückgängig gemacht werden!</p>
-                    <p>Alle Spielerdaten einschließlich Power Nine Informationen werden permanent gelöscht.</p>
-                    <p>Die Turnierhistorie bleibt erhalten, aber dieser Spieler wird nicht mehr in der Spielerliste erscheinen.</p>
                 </div>
-                <p>Bitte gib den Namen des Spielers ein, um den Löschvorgang zu bestätigen:</p>
-                <input type="text" id="confirmPlayerName" class="dialog-input" placeholder="Spielername zur Bestätigung">
+                <input type="text" id="confirmPlayerName" class="dialog-input" placeholder="Spielername zur Bestätigung eingeben">
             </div>
             <div class="dialog-buttons">
                 <button type="button" class="btn-dialog btn-cancel" onclick="hideDeleteConfirmation()">Abbrechen</button>
