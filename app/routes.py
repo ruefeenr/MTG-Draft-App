@@ -1830,11 +1830,22 @@ def save_round_pairings(round_number):
     if Counter(original_players) != Counter(submitted_players):
         return jsonify({"success": False, "message": "Spielerzuordnung ist ungültig. Bitte tausche nur vorhandene Spieler."}), 400
 
+    has_changes = False
+    for table, original in original_by_table.items():
+        submitted = submitted_by_table[table]
+        original_p1 = (original.get("player1") or "").strip()
+        original_p2 = (original.get("player2") or "").strip()
+        if submitted["player1"] != original_p1 or submitted["player2"] != original_p2:
+            has_changes = True
+            break
+    if not has_changes:
+        return jsonify({"success": True, "message": "Keine Änderungen an den Paarungen erkannt."})
+
     updated_rows = []
     for original in original_rows:
         table = str((original.get("table") or "").strip())
         submitted = submitted_by_table[table]
-        row_copy = dict(original)
+        row_copy = {field: original.get(field, "") for field in fieldnames}
         row_copy["player1"] = submitted["player1"]
         row_copy["player2"] = submitted["player2"]
         updated_rows.append(row_copy)

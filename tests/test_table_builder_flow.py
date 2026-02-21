@@ -276,6 +276,117 @@ class TableBuilderFlowTests(unittest.TestCase):
             self.assertEqual(updated_by_table[table_a]["player1"], b_p1)
             self.assertEqual(updated_by_table[table_b]["player1"], a_p1)
 
+    def test_save_round_pairings_noop_keeps_round_file_unchanged(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+            payload = [
+                {
+                    "table_size": 6,
+                    "group_id": "liga",
+                    "cube_id": "vintage",
+                    "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
+                }
+            ]
+            start_response = client.post(
+                "/start_tables",
+                data={"tables_payload": json.dumps(payload)},
+                follow_redirects=False,
+            )
+            self.assertIn(start_response.status_code, (302, 303))
+            with client.session_transaction() as sess:
+                tournament_id = sess.get("tournament_id")
+            round_path = os.path.join("data", tournament_id, "rounds", "round_1.csv")
+
+            with open(round_path, "r", encoding="utf-8") as f:
+                before_content = f.read()
+            with open(round_path, "r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+
+            submitted = [{"table": row["table"], "player1": row["player1"], "player2": row["player2"]} for row in rows]
+            save_response = client.post(
+                "/round/1/save_pairings",
+                data={"matches_json": json.dumps(submitted)},
+                follow_redirects=False,
+            )
+            self.assertEqual(save_response.status_code, 200)
+            body = save_response.get_json()
+            self.assertTrue(body.get("success"))
+            self.assertIn("Keine Änderungen", body.get("message", ""))
+
+            with open(round_path, "r", encoding="utf-8") as f:
+                after_content = f.read()
+            self.assertEqual(after_content, before_content)
+
+    def test_save_round_pairings_preserves_existing_bye_result_fields(self):
+        with temp_cwd():
+            app = create_app()
+            client = app.test_client()
+            payload = [
+                {
+                    "table_size": 8,
+                    "group_id": "liga",
+                    "cube_id": "vintage",
+                    "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Gina"],
+                }
+            ]
+            start_response = client.post(
+                "/start_tables",
+                data={"tables_payload": json.dumps(payload)},
+                follow_redirects=False,
+            )
+            self.assertIn(start_response.status_code, (302, 303))
+            with client.session_transaction() as sess:
+                tournament_id = sess.get("tournament_id")
+            round_path = os.path.join("data", tournament_id, "rounds", "round_1.csv")
+            with open(round_path, "r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+
+            bye_row = next(row for row in rows if row.get("player2") == "BYE")
+            bye_table = bye_row["table"]
+            bye_snapshot = {
+                "player1": bye_row.get("player1", ""),
+                "player2": bye_row.get("player2", ""),
+                "score1": bye_row.get("score1", ""),
+                "score2": bye_row.get("score2", ""),
+                "score_draws": bye_row.get("score_draws", ""),
+            }
+
+            non_bye_rows = [row for row in rows if row.get("player2") != "BYE"]
+            self.assertGreaterEqual(len(non_bye_rows), 2)
+            table_a = non_bye_rows[0]["table"]
+            table_b = non_bye_rows[1]["table"]
+            a_p1 = non_bye_rows[0]["player1"]
+            b_p1 = non_bye_rows[1]["player1"]
+
+            submitted = []
+            for row in rows:
+                row_copy = {"table": row["table"], "player1": row["player1"], "player2": row["player2"]}
+                if row["table"] == table_a:
+                    row_copy["player1"] = b_p1
+                elif row["table"] == table_b:
+                    row_copy["player1"] = a_p1
+                submitted.append(row_copy)
+
+            save_response = client.post(
+                "/round/1/save_pairings",
+                data={"matches_json": json.dumps(submitted)},
+                follow_redirects=False,
+            )
+            self.assertEqual(save_response.status_code, 200)
+            body = save_response.get_json()
+            self.assertTrue(body.get("success"))
+
+            with open(round_path, "r", encoding="utf-8") as f:
+                updated_rows = list(csv.DictReader(f))
+            updated_by_table = {row["table"]: row for row in updated_rows}
+            updated_bye = updated_by_table[bye_table]
+            self.assertEqual(updated_bye.get("player1", ""), bye_snapshot["player1"])
+            self.assertEqual(updated_bye.get("player2", ""), bye_snapshot["player2"])
+            self.assertEqual(updated_bye.get("score1", ""), bye_snapshot["score1"])
+            self.assertEqual(updated_bye.get("score2", ""), bye_snapshot["score2"])
+            self.assertEqual(updated_bye.get("score_draws", ""), bye_snapshot["score_draws"])
+
     def test_save_round_pairings_rejected_after_round_started(self):
         with temp_cwd():
             app = create_app()

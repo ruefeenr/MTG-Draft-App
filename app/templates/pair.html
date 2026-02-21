@@ -1563,6 +1563,53 @@
             if (!name) return "";
             return name.replace(" 🦵", "");
         }
+
+        function openResultModalFromCard(table) {
+            const matchCard = document.querySelector(`.match-card[data-table="${String(table)}"]`);
+            if (!matchCard) {
+                return;
+            }
+
+            const playerInfos = matchCard.querySelectorAll('.match-content > .player-info');
+            if (playerInfos.length < 2) {
+                return;
+            }
+
+            const player1Node = playerInfos[0];
+            const player2Node = playerInfos[1];
+
+            const player1 = (player1Node.dataset.rawPlayer || '').trim();
+            const player2 = (player2Node.dataset.rawPlayer || '').trim();
+            const tableSize = String(matchCard.dataset.tableSize || '6');
+
+            const score1 = (player1Node.querySelector('.score')?.textContent || '0').trim() || '0';
+            const score2 = (player2Node.querySelector('.score')?.textContent || '0').trim() || '0';
+
+            const drawText = (matchCard.querySelector('.draw-indicator')?.textContent || '').trim();
+            const drawMatch = drawText.match(/Draws:\s*(\d+)/i);
+            const scoreDraws = drawMatch ? drawMatch[1] : '0';
+
+            const dropout1 = player1Node.classList.contains('leg-marked') ? 'true' : 'false';
+            const dropout2 = player2Node.classList.contains('leg-marked') ? 'true' : 'false';
+
+            const display1 = cleanPlayerName(player1Node.querySelector('.player-name')?.textContent || player1);
+            const display2 = cleanPlayerName(player2Node.querySelector('.player-name')?.textContent || player2);
+
+            openResultModal(
+                String(table),
+                player1,
+                player2,
+                tableSize,
+                score1,
+                score2,
+                dropout1,
+                dropout2,
+                {{ current_round|tojson }},
+                display1,
+                display2,
+                scoreDraws
+            );
+        }
         
         // Modifizierte openResultModal Funktion, um die Power Nine Felder zurückzusetzen
         function openResultModal(table, player1, player2, tableSize, score1, score2, dropout1, dropout2, currentRound, display1, display2, score_draws) {
@@ -2675,20 +2722,7 @@
                             
                             <div class="match-card" data-table-size="{{ table_size }}" data-table="{{ match.table }}" data-player2="{{ match.player2 }}"
                                 {% if not tournament_ended %}
-                                onclick='openResultModal(
-                                    {{ match.table|tojson }}, 
-                                    {{ match.player1|tojson }}, 
-                                    {{ match.player2|tojson }}, 
-                                    {{ table_size|tojson }}, 
-                                    {{ match.score1|tojson }}, 
-                                    {{ match.score2|tojson }}, 
-                                    {{ match.dropout1|tojson }}, 
-                                    {{ match.dropout2|tojson }},
-                                    {{ current_round|tojson }},
-                                    {{ match.player1|tojson }},
-                                    {{ match.player2|tojson }},
-                                    {{ match.score_draws|tojson }}
-                                )'
+                                onclick='openResultModalFromCard({{ match.table|tojson }})'
                                 {% else %}
                                 style="cursor: default;"
                                 {% endif %}
