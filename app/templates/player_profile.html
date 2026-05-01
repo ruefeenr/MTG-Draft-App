@@ -700,8 +700,10 @@
         }
         
         function deletePlayer(playerName) {
+            const deleteUrl = "{{ url_for('main.delete_player', player_name='__PLAYER_NAME__') }}"
+                .replace('__PLAYER_NAME__', encodeURIComponent(playerName));
             // API-Aufruf zum Löschen des Spielers
-            fetch(`/player/${encodeURIComponent(playerName)}/delete`, {
+            fetch(deleteUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

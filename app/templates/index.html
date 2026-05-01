@@ -903,6 +903,7 @@
 
     <script>
         const CSRF_TOKEN = "{{ csrf_token() }}";
+        const DELETE_TOURNAMENT_URL_TEMPLATE = "{{ url_for('main.delete_tournament', tournament_id='__TOURNAMENT_ID__') }}";
         const GROUP_OPTIONS = {{ tournament_groups | tojson }};
         const CUBE_OPTIONS = {{ allowed_cubes | tojson }};
         const KNOWN_PLAYER_NAMES = {{ known_player_names | tojson }};
@@ -1349,8 +1350,9 @@
         }
         
         function deleteTournament(tournamentId) {
+            const deleteUrl = DELETE_TOURNAMENT_URL_TEMPLATE.replace('__TOURNAMENT_ID__', encodeURIComponent(tournamentId));
             // API-Aufruf zum Löschen des Turniers
-            fetch(`/delete_tournament/${tournamentId}`, {
+            fetch(deleteUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
