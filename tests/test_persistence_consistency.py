@@ -7,7 +7,7 @@ from app.models import Match, Round, Tournament
 
 def _start_tournament(client):
     response = client.post(
-        "/pair",
+        "/mtg/pair",
         data={
             "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
             "group_sizes": ["6"],
@@ -44,7 +44,7 @@ def test_save_results_updates_csv_and_db_consistently(client, app):
         first = next(csv.DictReader(f))
 
     response = client.post(
-        "/save_results",
+        "/mtg/save_results",
         data={
             "table": first["table"],
             "player1": first["player1"],
@@ -83,8 +83,8 @@ def test_save_results_updates_csv_and_db_consistently(client, app):
     assert line_count_before_reload >= 2
 
     # Reload/Load darf keine neuen Ergebniszeilen erzeugen.
-    client.get(f"/load_tournament/{tournament_id}", follow_redirects=False)
-    client.get("/round/1", follow_redirects=False)
+    client.get(f"/mtg/load_tournament/{tournament_id}", follow_redirects=False)
+    client.get("/mtg/round/1", follow_redirects=False)
 
     with open(results_file, "r", encoding="utf-8") as f:
         line_count_after_reload = sum(1 for _ in f)

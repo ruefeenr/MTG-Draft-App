@@ -5,19 +5,30 @@ def _enable_login(app):
     app.config["APP_LOGIN_PASSWORD_HASH"] = ""
 
 
-def test_login_required_redirects_to_login(client, app):
+def test_homepage_is_public_app_selector(client, app):
     _enable_login(app)
 
     response = client.get("/", follow_redirects=False)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "MTG League Manager" in html
+    assert "/mtg/" in html
+    assert "/claro/" in html
+
+
+def test_login_required_redirects_to_login(client, app):
+    _enable_login(app)
+
+    response = client.get("/mtg/", follow_redirects=False)
     assert response.status_code in (302, 303)
-    assert "/login" in response.headers["Location"]
+    assert "/mtg/login" in response.headers["Location"]
 
 
 def test_login_rejects_invalid_credentials(client, app):
     _enable_login(app)
 
     response = client.post(
-        "/login",
+        "/mtg/login",
         data={"username": "mtg", "password": "wrong"},
         follow_redirects=False,
     )
@@ -29,20 +40,20 @@ def test_login_allows_access_after_success(client, app):
     _enable_login(app)
 
     login = client.post(
-        "/login",
+        "/mtg/login",
         data={"username": "mtg", "password": "test-password"},
         follow_redirects=False,
     )
     assert login.status_code in (302, 303)
 
-    response = client.get("/", follow_redirects=False)
+    response = client.get("/mtg/", follow_redirects=False)
     assert response.status_code == 200
 
 
 def test_mutating_route_requires_login_when_enabled(client, app):
     _enable_login(app)
 
-    response = client.post("/groups/create", data={"group_name": "Private"})
+    response = client.post("/mtg/groups/create", data={"group_name": "Private"})
     assert response.status_code == 401
     payload = response.get_json()
     assert payload["code"] == "AUTH_REQUIRED"

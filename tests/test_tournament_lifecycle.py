@@ -8,7 +8,7 @@ from app.models import Tournament
 
 def _start_basic_tournament(client):
     response = client.post(
-        "/pair",
+        "/mtg/pair",
         data={
             "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
             "group_sizes": ["6"],
@@ -34,7 +34,7 @@ def _complete_round(client, tournament_id, round_number, dropout_player=None):
         else:
             score1, score2, draws = "2", "1", "0"
         save = client.post(
-            "/save_results",
+            "/mtg/save_results",
             data={
                 "table": row["table"],
                 "player1": row["player1"],
@@ -58,12 +58,12 @@ def test_lifecycle_start_save_next_end_archives_and_updates_db(client, app, seed
     assert tournament_id
 
     _complete_round(client, tournament_id, 1)
-    next_round_response = client.post("/next_round", follow_redirects=False)
+    next_round_response = client.post("/mtg/next_round", follow_redirects=False)
     assert next_round_response.status_code in (302, 303)
     assert "/round/2" in next_round_response.headers["Location"]
 
     _complete_round(client, tournament_id, 2)
-    end_response = client.post("/end_tournament", follow_redirects=True)
+    end_response = client.post("/mtg/end_tournament", follow_redirects=True)
     assert end_response.status_code == 200
 
     results_file = os.path.join("tournament_results", f"{tournament_id}_results.json")
@@ -97,7 +97,7 @@ def test_load_tournament_reconstructs_dropout_session_state(client, seeded_rando
         sess.pop("leg_players_set", None)
         sess.pop("tournament_ended", None)
 
-    response = client.get(f"/load_tournament/{tournament_id}", follow_redirects=False)
+    response = client.get(f"/mtg/load_tournament/{tournament_id}", follow_redirects=False)
     assert response.status_code in (302, 303)
 
     with client.session_transaction() as sess:

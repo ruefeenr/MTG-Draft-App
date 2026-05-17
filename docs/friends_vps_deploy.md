@@ -83,6 +83,8 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
+Eine versionierte Vorlage liegt unter `deploy/systemd/mtg-draft-app.service`.
+
 Aktivieren:
 
 ```bash
@@ -91,14 +93,81 @@ sudo systemctl enable --now mtg-draft-app
 sudo systemctl status mtg-draft-app
 ```
 
-## 6) Nginx + HTTPS
+## 6) Claro Calendar auf demselben VPS
 
-Nginx Site `/etc/nginx/sites-available/mtg-draft-app`:
+Code separat nach `/opt/claro-calendar` deployen:
+
+```bash
+sudo adduser --system --group --home /opt/claro-calendar claroapp
+sudo mkdir -p /opt/claro-calendar
+sudo chown -R claroapp:claroapp /opt/claro-calendar
+sudo -u claroapp git clone https://github.com/ruefeenr/claro-calendar.git /opt/claro-calendar
+cd /opt/claro-calendar
+sudo -u claroapp npm ci
+```
+
+In `next.config.ts` muss die App unter `/claro` laufen:
+
+```ts
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  basePath: "/claro",
+  typedRoutes: true,
+};
+
+export default nextConfig;
+```
+
+Eine kopierbare Vorlage liegt unter `deploy/claro-calendar/next.config.ts`.
+
+Danach `.env.local` anlegen:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
+
+Build:
+
+```bash
+sudo -u claroapp npm run build
+```
+
+Systemd-Service `/etc/systemd/system/claro-calendar.service` anlegen. Eine Vorlage liegt unter `deploy/systemd/claro-calendar.service`.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now claro-calendar
+sudo systemctl status claro-calendar
+```
+
+## 7) Nginx + HTTPS
+
+Nginx Site `/etc/nginx/sites-available/apps-homepage`:
 
 ```nginx
 server {
     listen 80;
-    server_name mtg.example.com;
+    server_name example.com;
+
+    location = /mtg {
+        return 301 /mtg/;
+    }
+
+    location = /claro {
+        return 301 /claro/;
+    }
+
+    location /claro/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:10000;
@@ -110,10 +179,12 @@ server {
 }
 ```
 
+Eine versionierte Vorlage liegt unter `deploy/nginx/apps-homepage.conf`.
+
 Aktivieren:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/mtg-draft-app /etc/nginx/sites-enabled/mtg-draft-app
+sudo ln -s /etc/nginx/sites-available/apps-homepage /etc/nginx/sites-enabled/apps-homepage
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -122,10 +193,10 @@ TLS (Let's Encrypt):
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d mtg.example.com
+sudo certbot --nginx -d example.com
 ```
 
-## 7) Backup- und Restore-Drill
+## 8) Backup- und Restore-Drill
 
 Backup:
 
@@ -144,12 +215,12 @@ export FLASK_SECRET_KEY="replace-me"
 bash scripts/postgres_restore_smoke.sh backups/<backup-file>.dump
 ```
 
-## 8) Minimaler Betriebsrhythmus
+## 9) Minimaler Betriebsrhythmus
 
 - Vor jedem Deploy:
   - Backup laufen lassen
   - `flask --app run.py db upgrade`
-  - `/healthz` pruefen
+  - `/healthz`, `/mtg/healthz`, `/mtg/` und `/claro/` pruefen
 - Nach jedem Deploy:
   - Kernflow kurz testen (Start -> Save -> Next Round -> End)
 - Woechentlich:

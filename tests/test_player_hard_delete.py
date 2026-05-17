@@ -8,7 +8,7 @@ from app.player_stats import delete_player
 def _start_tournament(client, players=None):
     payload_players = players or ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"]
     response = client.post(
-        "/pair",
+        "/mtg/pair",
         data={
             "players": payload_players,
             "group_sizes": ["6"],
@@ -47,7 +47,7 @@ def test_hard_delete_removes_player_and_freezes_match_name(app, client):
         ).all()
         assert snapshots
 
-    players_page = client.get("/players")
+    players_page = client.get("/mtg/players")
     assert players_page.status_code == 200
     html = players_page.get_data(as_text=True)
     assert "Alice" not in html
@@ -55,7 +55,7 @@ def test_hard_delete_removes_player_and_freezes_match_name(app, client):
 
 def test_player_delete_dialog_text_is_simplified(client):
     _start_tournament(client)
-    profile = client.get("/player/Bob")
+    profile = client.get("/mtg/player/Bob")
     assert profile.status_code == 200
     html = profile.get_data(as_text=True)
     assert "Alle Spielerdaten einschließlich Power Nine Informationen werden permanent gelöscht." not in html
@@ -76,7 +76,7 @@ def test_players_list_ignores_legacy_files_after_hard_delete(app, client):
         f.write("Tournament,Player 1,Player 2,Score 1,Score 2,Draws\n")
         f.write("t1,Alice,Bob,2,1,0\n")
 
-    response = client.get("/players")
+    response = client.get("/mtg/players")
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "Alice" not in html
@@ -84,6 +84,6 @@ def test_players_list_ignores_legacy_files_after_hard_delete(app, client):
 
 
 def test_player_profile_redirects_when_player_is_missing(client):
-    response = client.get("/player/this-player-does-not-exist", follow_redirects=False)
+    response = client.get("/mtg/player/this-player-does-not-exist", follow_redirects=False)
     assert response.status_code in (302, 303)
     assert "/players" in response.headers.get("Location", "")

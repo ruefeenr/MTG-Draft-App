@@ -6,7 +6,7 @@ from app.routes import get_marked_players_for_tournament
 
 def _start_tournament(client):
     response = client.post(
-        "/pair",
+        "/mtg/pair",
         data={
             "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
             "group_sizes": ["6"],
@@ -28,7 +28,7 @@ def test_dropout_reconstruction_from_saved_rounds(client):
     first = rows[0]
 
     save_response = client.post(
-        "/save_results",
+        "/mtg/save_results",
         data={
             "table": first["table"],
             "player1": first["player1"],
@@ -56,7 +56,7 @@ def test_dropout_can_be_removed_and_reconstruction_matches_latest_state(client):
 
     for dropout_flag in ("true", "false"):
         save_response = client.post(
-            "/save_results",
+            "/mtg/save_results",
             data={
                 "table": first["table"],
                 "player1": first["player1"],

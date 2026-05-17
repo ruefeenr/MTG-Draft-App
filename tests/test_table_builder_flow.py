@@ -44,7 +44,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 },
             ]
             response = client.post(
-                "/start_tables",
+                "/mtg/start_tables",
                 data={"tables_payload": json.dumps(payload)},
                 follow_redirects=False,
             )
@@ -89,7 +89,7 @@ class TableBuilderFlowTests(unittest.TestCase):
             ]
 
             response = client.post(
-                "/start_tables",
+                "/mtg/start_tables",
                 data={"tables_payload": json.dumps(payload)},
                 follow_redirects=True,
             )
@@ -114,7 +114,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 }
             ]
             response = client.post(
-                "/start_tables",
+                "/mtg/start_tables",
                 data={"tables_payload": json.dumps(payload)},
                 follow_redirects=False,
             )
@@ -155,7 +155,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                     }
                 ]
                 response = client.post(
-                    "/start_tables",
+                    "/mtg/start_tables",
                     data={"tables_payload": json.dumps(payload)},
                     follow_redirects=False,
                 )
@@ -190,7 +190,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 }
             ]
             response = client.post(
-                "/start_tables",
+                "/mtg/start_tables",
                 data={"tables_payload": json.dumps(payload)},
                 follow_redirects=True,
             )
@@ -211,7 +211,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 }
             ]
             response = client.post(
-                "/start_tables",
+                "/mtg/start_tables",
                 data={"tables_payload": json.dumps(payload), "pairing_mode": "manual"},
                 follow_redirects=False,
             )
@@ -234,7 +234,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 }
             ]
             start_response = client.post(
-                "/start_tables",
+                "/mtg/start_tables",
                 data={"tables_payload": json.dumps(payload)},
                 follow_redirects=False,
             )
@@ -262,7 +262,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 submitted.append(row_copy)
 
             save_response = client.post(
-                "/round/1/save_pairings",
+                "/mtg/round/1/save_pairings",
                 data={"matches_json": json.dumps(submitted)},
                 follow_redirects=False,
             )
@@ -289,7 +289,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 }
             ]
             start_response = client.post(
-                "/start_tables",
+                "/mtg/start_tables",
                 data={"tables_payload": json.dumps(payload)},
                 follow_redirects=False,
             )
@@ -305,7 +305,7 @@ class TableBuilderFlowTests(unittest.TestCase):
 
             submitted = [{"table": row["table"], "player1": row["player1"], "player2": row["player2"]} for row in rows]
             save_response = client.post(
-                "/round/1/save_pairings",
+                "/mtg/round/1/save_pairings",
                 data={"matches_json": json.dumps(submitted)},
                 follow_redirects=False,
             )
@@ -331,7 +331,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 }
             ]
             start_response = client.post(
-                "/start_tables",
+                "/mtg/start_tables",
                 data={"tables_payload": json.dumps(payload)},
                 follow_redirects=False,
             )
@@ -369,7 +369,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 submitted.append(row_copy)
 
             save_response = client.post(
-                "/round/1/save_pairings",
+                "/mtg/round/1/save_pairings",
                 data={"matches_json": json.dumps(submitted)},
                 follow_redirects=False,
             )
@@ -400,7 +400,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 }
             ]
             start_response = client.post(
-                "/start_tables",
+                "/mtg/start_tables",
                 data={"tables_payload": json.dumps(payload)},
                 follow_redirects=False,
             )
@@ -413,7 +413,7 @@ class TableBuilderFlowTests(unittest.TestCase):
 
             normal_row = next(row for row in rows if row.get("player2") != "BYE")
             client.post(
-                "/save_results",
+                "/mtg/save_results",
                 data={
                     "table": normal_row["table"],
                     "player1": normal_row["player1"],
@@ -431,7 +431,7 @@ class TableBuilderFlowTests(unittest.TestCase):
 
             submitted = [{"table": row["table"], "player1": row["player1"], "player2": row["player2"]} for row in rows]
             save_response = client.post(
-                "/round/1/save_pairings",
+                "/mtg/round/1/save_pairings",
                 data={"matches_json": json.dumps(submitted)},
                 follow_redirects=False,
             )
@@ -443,14 +443,14 @@ class TableBuilderFlowTests(unittest.TestCase):
         with temp_cwd():
             app = create_app()
             client = app.test_client()
-            response = client.get("/prepare")
+            response = client.get("/mtg/prepare")
             self.assertEqual(response.status_code, 404)
 
     def test_index_contains_new_table_builder_elements(self):
         with temp_cwd():
             app = create_app()
             client = app.test_client()
-            response = client.get("/")
+            response = client.get("/mtg/")
             self.assertEqual(response.status_code, 200)
             html = response.get_data(as_text=True)
             self.assertIn("tableBuilderForm", html)
@@ -466,7 +466,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                 db.session.add(Player(name="Enrique", normalized_name=normalize_name("Enrique")))
                 db.session.add(Player(name="Chrigi", normalized_name=normalize_name("Chrigi")))
                 db.session.commit()
-            response = client.get("/")
+            response = client.get("/mtg/")
             self.assertEqual(response.status_code, 200)
             html = response.get_data(as_text=True)
             self.assertIn('datalist id="knownPlayersList"', html)
@@ -487,7 +487,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                     )
                 )
                 db.session.commit()
-            response = client.get("/")
+            response = client.get("/mtg/")
             self.assertEqual(response.status_code, 200)
             html = response.get_data(as_text=True)
             self.assertIn('<option value="Enrique"></option>', html)
@@ -506,7 +506,7 @@ class TableBuilderFlowTests(unittest.TestCase):
                     )
                 )
                 db.session.commit()
-            response = client.get("/players")
+            response = client.get("/mtg/players")
             self.assertEqual(response.status_code, 200)
             html = response.get_data(as_text=True)
             self.assertIn("Valentin", html)

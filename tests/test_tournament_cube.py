@@ -33,7 +33,7 @@ def temp_cwd():
 class TournamentCubeTests(unittest.TestCase):
     def _start_tournament(self, client, cube_id):
         response = client.post(
-            "/pair",
+            "/mtg/pair",
             data={
                 "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
                 "group_sizes": ["6"],
@@ -121,7 +121,7 @@ class TournamentCubeTests(unittest.TestCase):
                 writer.writeheader()
                 writer.writerows(rows)
 
-            response = client.post("/end_tournament", follow_redirects=False)
+            response = client.post("/mtg/end_tournament", follow_redirects=False)
             self.assertEqual(response.status_code, 200)
 
             result_path = os.path.join("tournament_results", f"{tournament_id}_results.json")
@@ -139,7 +139,7 @@ class TournamentCubeTests(unittest.TestCase):
             client = app.test_client()
 
             self._start_tournament(client, "pauper")
-            response = client.get("/round/1")
+            response = client.get("/mtg/round/1")
             self.assertEqual(response.status_code, 200)
             html = response.get_data(as_text=True)
             self.assertNotIn("Power Nine hinzufügen", html)
@@ -279,7 +279,7 @@ class TournamentCubeTests(unittest.TestCase):
             client = app.test_client()
             self._start_tournament(client, "pauper")
 
-            response = client.get("/api/player/Alice/power_nine")
+            response = client.get("/mtg/api/player/Alice/power_nine")
             self.assertEqual(response.status_code, 200)
             payload = response.get_json()
             self.assertTrue(payload["success"])
@@ -292,7 +292,7 @@ class TournamentCubeTests(unittest.TestCase):
             client = app.test_client()
 
             create_response = client.post(
-                "/cubes/create",
+                "/mtg/cubes/create",
                 data={"cube_name": "Legacy Cube"},
                 follow_redirects=True,
             )
@@ -302,7 +302,7 @@ class TournamentCubeTests(unittest.TestCase):
             cube_names = {cube["name"] for cube in cubes}
             self.assertIn("Legacy Cube", cube_names)
 
-            home = client.get("/")
+            home = client.get("/mtg/")
             self.assertEqual(home.status_code, 200)
             self.assertIn("Legacy Cube", home.get_data(as_text=True))
 
@@ -311,13 +311,13 @@ class TournamentCubeTests(unittest.TestCase):
             app = create_app()
             client = app.test_client()
 
-            client.post("/cubes/create", data={"cube_name": "Legacy Cube"}, follow_redirects=True)
+            client.post("/mtg/cubes/create", data={"cube_name": "Legacy Cube"}, follow_redirects=True)
             cubes = load_allowed_cubes()
             legacy_cube = next((cube for cube in cubes if cube["name"] == "Legacy Cube"), None)
             self.assertIsNotNone(legacy_cube)
 
             response = client.post(
-                "/pair",
+                "/mtg/pair",
                 data={
                     "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
                     "group_sizes": ["6"],
@@ -333,7 +333,7 @@ class TournamentCubeTests(unittest.TestCase):
             self.assertTrue(tournament_id)
 
             delete_response = client.post(
-                "/cubes/delete",
+                "/mtg/cubes/delete",
                 data={"cube_id": legacy_cube["id"]},
                 follow_redirects=True,
             )
@@ -343,7 +343,7 @@ class TournamentCubeTests(unittest.TestCase):
             self.assertEqual(meta[tournament_id]["cube_id"], legacy_cube["id"])
             self.assertEqual(meta[tournament_id]["cube_name"], "Legacy Cube")
 
-            home = client.get("/")
+            home = client.get("/mtg/")
             self.assertEqual(home.status_code, 200)
             self.assertNotIn("Legacy Cube", home.get_data(as_text=True))
 
@@ -351,13 +351,13 @@ class TournamentCubeTests(unittest.TestCase):
         with temp_cwd():
             app = create_app()
             client = app.test_client()
-            client.post("/cubes/create", data={"cube_name": "Legacy Cube"}, follow_redirects=True)
-            client.post("/cubes/create", data={"cube_name": "Modern Cube"}, follow_redirects=True)
+            client.post("/mtg/cubes/create", data={"cube_name": "Legacy Cube"}, follow_redirects=True)
+            client.post("/mtg/cubes/create", data={"cube_name": "Modern Cube"}, follow_redirects=True)
 
             cubes = load_allowed_cubes()
             legacy = next(c for c in cubes if c["name"] == "Legacy Cube")
             rename_response = client.post(
-                "/cubes/rename",
+                "/mtg/cubes/rename",
                 data={"cube_id": legacy["id"], "cube_name": "Legacy Reloaded"},
                 follow_redirects=True,
             )
@@ -365,7 +365,7 @@ class TournamentCubeTests(unittest.TestCase):
             self.assertIn("Legacy Reloaded", rename_response.get_data(as_text=True))
 
             duplicate_response = client.post(
-                "/cubes/rename",
+                "/mtg/cubes/rename",
                 data={"cube_id": legacy["id"], "cube_name": "Modern Cube"},
                 follow_redirects=True,
             )
@@ -378,7 +378,7 @@ class TournamentCubeTests(unittest.TestCase):
             client = app.test_client()
 
             delete_response = client.post(
-                "/cubes/delete",
+                "/mtg/cubes/delete",
                 data={"cube_id": "vintage"},
                 follow_redirects=True,
             )
@@ -386,7 +386,7 @@ class TournamentCubeTests(unittest.TestCase):
             self.assertIn("kann nicht gelöscht werden", delete_response.get_data(as_text=True))
 
             rename_response = client.post(
-                "/cubes/rename",
+                "/mtg/cubes/rename",
                 data={"cube_id": "vintage", "cube_name": "Vintage 2"},
                 follow_redirects=True,
             )
@@ -400,7 +400,7 @@ class TournamentCubeTests(unittest.TestCase):
             self._start_tournament(client, "pauper")
 
             response = client.post(
-                "/api/player/Alice/power_nine",
+                "/mtg/api/player/Alice/power_nine",
                 json={"Black Lotus": True, "Time Walk": True},
             )
             self.assertEqual(response.status_code, 200)

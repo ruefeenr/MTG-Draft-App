@@ -1,0 +1,16 @@
+[Unit]
+Description=Claro Calendar
+After=network.target
+
+[Service]
+User=claroapp
+Group=claroapp
+WorkingDirectory=/opt/claro-calendar
+EnvironmentFile=/opt/claro-calendar/.env.local
+Environment=PORT=3000
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

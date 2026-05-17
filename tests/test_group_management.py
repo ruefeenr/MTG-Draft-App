@@ -21,7 +21,7 @@ def temp_cwd():
 class GroupManagementTests(unittest.TestCase):
     def _create_group(self, client, name):
         response = client.post(
-            "/groups/create",
+            "/mtg/groups/create",
             data={"group_name": name},
             follow_redirects=True,
         )
@@ -55,7 +55,7 @@ class GroupManagementTests(unittest.TestCase):
             self._create_group(client, "Liga Winter 25/26")
             self._create_group(client, "Liga Sommer 26")
 
-            response = client.get("/")
+            response = client.get("/mtg/")
             self.assertEqual(response.status_code, 200)
             html = response.get_data(as_text=True)
             self.assertIn("Liga Winter 25/26", html)
@@ -72,7 +72,7 @@ class GroupManagementTests(unittest.TestCase):
             self.assertTrue(winter_id)
 
             rename_response = client.post(
-                "/groups/rename",
+                "/mtg/groups/rename",
                 data={"group_id": winter_id, "group_name": "Liga Herbst 26"},
                 follow_redirects=True,
             )
@@ -83,7 +83,7 @@ class GroupManagementTests(unittest.TestCase):
             self.assertNotIn("Liga Winter 25/26", names)
 
             duplicate_response = client.post(
-                "/groups/rename",
+                "/mtg/groups/rename",
                 data={"group_id": winter_id, "group_name": "Liga Sommer 26"},
                 follow_redirects=True,
             )
@@ -102,7 +102,7 @@ class GroupManagementTests(unittest.TestCase):
             self.assertNotEqual(group_id, DEFAULT_GROUP_ID)
 
             response = client.post(
-                "/pair",
+                "/mtg/pair",
                 data={
                     "players": ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"],
                     "group_sizes": ["6"],
@@ -118,7 +118,7 @@ class GroupManagementTests(unittest.TestCase):
             self.assertTrue(tournament_id)
 
             response = client.post(
-                "/groups/delete",
+                "/mtg/groups/delete",
                 data={"group_id": group_id},
                 follow_redirects=True,
             )
@@ -128,12 +128,12 @@ class GroupManagementTests(unittest.TestCase):
             self.assertEqual(meta[tournament_id]["group_id"], group_id)
             self.assertEqual(meta[tournament_id]["group_name"], "Liga Winter 25/26")
 
-            home = client.get("/")
+            home = client.get("/mtg/")
             self.assertEqual(home.status_code, 200)
             home_html = home.get_data(as_text=True)
             self.assertNotIn(f'<option value="{group_id}"', home_html)
 
-            groups_page = client.get("/groups")
+            groups_page = client.get("/mtg/groups")
             self.assertEqual(groups_page.status_code, 200)
             groups_html = groups_page.get_data(as_text=True)
             self.assertNotIn(f'<input type="hidden" name="group_id" value="{group_id}">', groups_html)
@@ -144,7 +144,7 @@ class GroupManagementTests(unittest.TestCase):
             client = app.test_client()
 
             delete_response = client.post(
-                "/groups/delete",
+                "/mtg/groups/delete",
                 data={"group_id": DEFAULT_GROUP_ID},
                 follow_redirects=True,
             )
@@ -152,7 +152,7 @@ class GroupManagementTests(unittest.TestCase):
             self.assertIn("kann nicht gelöscht werden", delete_response.get_data(as_text=True))
 
             rename_response = client.post(
-                "/groups/rename",
+                "/mtg/groups/rename",
                 data={"group_id": DEFAULT_GROUP_ID, "group_name": "Neu"},
                 follow_redirects=True,
             )

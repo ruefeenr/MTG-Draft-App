@@ -76,6 +76,8 @@ python run.py
 
 Danach unter `http://127.0.0.1:5000`.
 
+Die Root-Seite `/` ist eine App-Auswahl. Der MTG League Manager ist unter `/mtg/` erreichbar, damit weitere Apps wie Claro Calendar parallel unter eigenen Pfaden laufen können.
+
 ### Optional: lokal ohne PostgreSQL (SQLite)
 
 PowerShell:
@@ -161,7 +163,7 @@ MTG-Draft-App/
 - Vor jedem Deploy:
   - Backup erstellen
   - `flask --app run.py db upgrade`
-  - `GET /healthz` prüfen
+  - `GET /healthz`, `GET /mtg/healthz` und `GET /mtg/` prüfen
 - Release-/Rollback-Checkliste: `docs/release_rollback_checklist.md`
 - VPS-Runbook fuer Friends-Prod: `docs/friends_vps_deploy.md`
 

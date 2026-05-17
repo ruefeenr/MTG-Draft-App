@@ -1,0 +1,15 @@
+[Unit]
+Description=MTG Draft App
+After=network.target
+
+[Service]
+User=mtgapp
+Group=mtgapp
+WorkingDirectory=/opt/mtg-draft-app
+EnvironmentFile=/opt/mtg-draft-app/.env
+ExecStart=/opt/mtg-draft-app/.venv/bin/gunicorn -c gunicorn_config.py wsgi:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

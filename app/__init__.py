@@ -1,4 +1,4 @@
-from flask import Flask, g, jsonify, request, session
+from flask import Flask, g, jsonify, render_template, request, session
 import os
 import time
 import uuid
@@ -108,9 +108,13 @@ def create_app():
     from .services.cubes import ensure_default_cubes
     from .services.groups import ensure_default_groups
     
+    @app.route("/", methods=["GET"])
+    def home():
+        return render_template("home.html")
+
     # Registriere Blueprints
     from .routes import main
-    app.register_blueprint(main)
+    app.register_blueprint(main, url_prefix="/mtg")
 
     # Für Greenfield-Setup ohne Datenmigration:
     # Tabellen bei Bedarf automatisch anlegen und Defaults sicherstellen.
@@ -228,6 +232,10 @@ def create_app():
 
     @app.route("/healthz", methods=["GET"])
     def healthz():
+        return jsonify({"status": "ok"}), 200
+
+    @app.route("/mtg/healthz", methods=["GET"])
+    def mtg_healthz():
         return jsonify({"status": "ok"}), 200
 
     if not app.logger.handlers:
