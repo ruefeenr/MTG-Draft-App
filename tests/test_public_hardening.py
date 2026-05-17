@@ -1,6 +1,7 @@
 import csv
 import os
 
+from app.routes import _get_pairing_seed
 from app.db import db
 from app.models import Tournament
 
@@ -8,7 +9,7 @@ from app.models import Tournament
 def _start_tournament(client, players=None):
     payload_players = players or ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"]
     response = client.post(
-        "/pair",
+        "/mtg/pair",
         data={
             "players": payload_players,
             "group_sizes": ["6"],
@@ -35,7 +36,7 @@ def _complete_round(client, tournament_id, round_number):
     for row in rows:
         score1, score2, draws = ("2", "0", "0") if row["player2"] == "BYE" else ("2", "1", "0")
         response = client.post(
-            "/save_results",
+            "/mtg/save_results",
             data={
                 "table": row["table"],
                 "player1": row["player1"],
@@ -68,7 +69,7 @@ def test_save_results_rejects_mutation_after_db_end_state(client, app):
         db.session.commit()
 
     response = client.post(
-        "/save_results",
+        "/mtg/save_results",
         data={
             "table": match["table"],
             "player1": match["player1"],
@@ -91,26 +92,22 @@ def test_end_tournament_is_idempotent(client):
     tournament_id = _start_tournament(client)
     _complete_round(client, tournament_id, 1)
 
-    first = client.post("/end_tournament", follow_redirects=True)
+    first = client.post("/mtg/end_tournament", follow_redirects=True)
     assert first.status_code == 200
 
-    second = client.post("/end_tournament", follow_redirects=False)
+    second = client.post("/mtg/end_tournament", follow_redirects=False)
     assert second.status_code in (302, 303)
 
 
-def test_pairings_are_reproducible_with_seed_override(client, monkeypatch):
-    players = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"]
+def test_pairing_seed_override_is_scoped_per_tournament(monkeypatch):
     monkeypatch.setenv("MTG_PAIRING_SEED", "12345")
-    tournament_a = _start_tournament(client, players=players)
-    tournament_b = _start_tournament(client, players=players)
 
-    def pairs_for(tournament_id):
-        round_path = os.path.join("data", tournament_id, "rounds", "round_1.csv")
-        with open(round_path, "r", encoding="utf-8") as f:
-            rows = list(csv.DictReader(f))
-        return sorted(tuple(sorted([row["player1"], row["player2"]])) for row in rows)
+    first = _get_pairing_seed("tournament-a", "start-table", 1)
+    second = _get_pairing_seed("tournament-b", "start-table", 1)
+    repeated = _get_pairing_seed("tournament-a", "start-table", 1)
 
-    assert pairs_for(tournament_a) == pairs_for(tournament_b)
+    assert first == repeated
+    assert first != second
 
 
 def test_csrf_required_for_post_when_testing_disabled(client, app, monkeypatch):
@@ -119,16 +116,16 @@ def test_csrf_required_for_post_when_testing_disabled(client, app, monkeypatch):
     app.config["WTF_CSRF_ENABLED"] = True
 
     # Session initialisieren
-    client.get("/")
+    client.get("/mtg/")
 
-    missing = client.post("/groups/create", data={"group_name": "Neue Liga"})
+    missing = client.post("/mtg/groups/create", data={"group_name": "Neue Liga"})
     assert missing.status_code == 403
     assert missing.get_json()["code"] == "CSRF_TOKEN_INVALID"
 
     with client.session_transaction() as sess:
         token = sess.get("csrf_token")
 
-    ok = client.post("/groups/create", data={"group_name": "Neue Liga", "csrf_token": token}, follow_redirects=False)
+    ok = client.post("/mtg/groups/create", data={"group_name": "Neue Liga", "csrf_token": token}, follow_redirects=False)
     assert ok.status_code in (302, 303)
 
 
@@ -141,14 +138,14 @@ def test_rate_limit_blocks_repeated_mutations(client, app, monkeypatch):
     app.config["RATE_LIMIT_WINDOW_SECONDS"] = 60
     app.config["RATE_LIMITED_ENDPOINTS"] = {"main.create_group"}
 
-    client.get("/")
+    client.get("/mtg/")
     with client.session_transaction() as sess:
         token = sess.get("csrf_token")
 
-    first = client.post("/groups/create", data={"group_name": "Rate A", "csrf_token": token}, follow_redirects=False)
+    first = client.post("/mtg/groups/create", data={"group_name": "Rate A", "csrf_token": token}, follow_redirects=False)
     assert first.status_code in (302, 303)
 
-    second = client.post("/groups/create", data={"group_name": "Rate B", "csrf_token": token}, follow_redirects=False)
+    second = client.post("/mtg/groups/create", data={"group_name": "Rate B", "csrf_token": token}, follow_redirects=False)
     assert second.status_code == 429
     assert second.get_json()["code"] == "RATE_LIMIT_EXCEEDED"
 
@@ -158,7 +155,7 @@ def test_save_results_rejects_more_than_three_total_games(client):
     match = _first_match(tournament_id)
 
     response = client.post(
-        "/save_results",
+        "/mtg/save_results",
         data={
             "table": match["table"],
             "player1": match["player1"],

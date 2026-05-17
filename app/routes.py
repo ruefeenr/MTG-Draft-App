@@ -14,6 +14,7 @@ from .services.tournaments import set_tournament_status
 from .models import Match, Player, PlayerPowerNine, Round, Tournament
 from .db import db
 from .services.normalize import normalize_name
+from .swiss_pairing import generate_swiss_pairings
 import unicodedata
 from .tournament_groups import (
     DEFAULT_GROUP_ID,
@@ -44,7 +45,7 @@ main = Blueprint('main', __name__)
 
 TOURNAMENT_STATUS_RUNNING = "running"
 TOURNAMENT_STATUS_ENDED = "ended"
-AUTH_EXEMPT_ENDPOINTS = {"main.login", "main.logout", "static", "healthz"}
+AUTH_EXEMPT_ENDPOINTS = {"home", "main.login", "main.logout", "static", "healthz", "mtg_healthz"}
 PAIRING_MODE_AUTO = "auto"
 PAIRING_MODE_MANUAL = "manual"
 VALID_PAIRING_MODES = {PAIRING_MODE_AUTO, PAIRING_MODE_MANUAL}
@@ -655,12 +656,8 @@ def _get_pairing_seed(tournament_id, stage, round_number=None):
     Optional überschreibbar über ENV `MTG_PAIRING_SEED`.
     """
     env_seed = os.environ.get("MTG_PAIRING_SEED")
-    if env_seed:
-        try:
-            return int(env_seed)
-        except ValueError:
-            pass
-    token = f"{tournament_id}|{stage}|{round_number or 0}"
+    seed_prefix = env_seed if env_seed else ""
+    token = f"{seed_prefix}|{tournament_id}|{stage}|{round_number or 0}"
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
     return int(digest[:16], 16)
 
@@ -1619,32 +1616,25 @@ def next_round():
         active_players = [p for p in group_players if not is_player_marked(p)]
         print(f"Aktive Spieler in Gruppe {group_key}: {active_players}")
         
-        # Sortiere aktive Spieler nach Punkten für bessere Paarungen
-        sorted_players = []
-        for player in active_players:
-            player_stats = next((p for p in leaderboard if p[0] == player), None)
-            if player_stats:
-                sorted_players.append((player, int(player_stats[1]), player))
-            else:
-                sorted_players.append((player, 0, player))
-        
-        # Sortiere nach Punkten (absteigend) und dann nach Namen
-        sorted_players.sort(key=lambda x: (-x[1], x[2]))
-        sorted_players = [p[0] for p in sorted_players]
-        
-        if len(sorted_players) % 2 != 0:
-            # Faire BYE-Vergabe:
-            # - bevorzugt Spieler mit weniger bisherigen BYEs
-            # - bei Gleichstand weiterhin eher niedriger platzierte Spieler
-            min_bye_count = min(bye_counts.get(p, 0) for p in sorted_players)
-            bye_player = None
-            for candidate in reversed(sorted_players):
-                if bye_counts.get(candidate, 0) == min_bye_count:
-                    bye_player = candidate
-                    break
-            if bye_player is None:
-                bye_player = sorted_players[-1]
-            sorted_players.remove(bye_player)
+        points_by_player = {player: int(points) for player, points, *_ in leaderboard}
+        leaderboard_rank = {player: index for index, (player, *_rest) in enumerate(leaderboard)}
+        sorted_players = sorted(
+            active_players,
+            key=lambda player: (
+                leaderboard_rank.get(player, len(leaderboard) + active_players.index(player)),
+                player,
+            ),
+        )
+
+        pairing_result = generate_swiss_pairings(
+            sorted_players,
+            points_by_player,
+            opponents,
+            bye_counts,
+        )
+
+        bye_player = pairing_result["bye_player"]
+        if bye_player:
             match_list.append({
                 "table": str(table_nr),
                 "player1": bye_player,
@@ -1652,48 +1642,33 @@ def next_round():
                 "score1": "2",  # Automatischer Sieg für den Spieler
                 "score2": "0",
                 "score_draws": "0",  # Keine Unentschieden bei BYE-Matches
+                "dropout1": "false",
+                "dropout2": "false",
                 "table_size": table_size,
                 "group_key": group_key  # Speichere den zusammengesetzten Schlüssel
             })
             table_nr += 1
             bye_counts[bye_player] += 1
             print(f"BYE-Match: {bye_player} vs BYE mit automatischem Ergebnis 2:0:0")
-        
-        # Matche die restlichen Spieler
-        for i in range(0, len(sorted_players), 2):
-            if i + 1 < len(sorted_players):
-                p1, p2 = sorted_players[i], sorted_players[i+1]
-                
-                # Prüfe, ob sie bereits gegeneinander gespielt haben
-                player1_opponents = [opp[0] for opp in opponents.get(p1, [])]
-                if p2 in player1_opponents and i + 2 < len(sorted_players):
-                    # Versuche, einen anderen Gegner zu finden
-                    for j in range(i+2, len(sorted_players), 2):
-                        if j + 1 < len(sorted_players):
-                            alt_p2 = sorted_players[j]
-                            alt_p1 = sorted_players[j+1]
-                            alt_p1_opponents = [opp[0] for opp in opponents.get(alt_p1, [])]
-                            alt_p2_opponents = [opp[0] for opp in opponents.get(alt_p2, [])]
-                            
-                            if p1 not in alt_p2_opponents and p2 not in alt_p1_opponents:
-                                # Tausche die Gegner
-                                sorted_players[i+1], sorted_players[j] = sorted_players[j], sorted_players[i+1]
-                                sorted_players[j+1], sorted_players[i+2] = sorted_players[i+2], sorted_players[j+1]
-                                p2 = alt_p2
-                                break
-                
-                match_list.append({
-                    "table": str(table_nr),
-                    "player1": p1,
-                    "player2": p2,
-                    "score1": "",
-                    "score2": "",
-                    "score_draws": "",  # Leeres Feld für Unentschieden
-                    "table_size": table_size,
-                    "group_key": group_key  # Speichere den zusammengesetzten Schlüssel
-                })
-                table_nr += 1
-                print(f"Match: {p1} vs {p2}")
+
+        if pairing_result["had_to_repeat"]:
+            print(f"Repeat-Pairings unvermeidbar: {pairing_result['repeat_pairs']}")
+
+        for p1, p2 in pairing_result["pairs"]:
+            match_list.append({
+                "table": str(table_nr),
+                "player1": p1,
+                "player2": p2,
+                "score1": "",
+                "score2": "",
+                "score_draws": "",  # Leeres Feld für Unentschieden
+                "dropout1": "false",
+                "dropout2": "false",
+                "table_size": table_size,
+                "group_key": group_key  # Speichere den zusammengesetzten Schlüssel
+            })
+            table_nr += 1
+            print(f"Match: {p1} vs {p2}")
 
     # Speichere die neue Runde
     next_round_number = current_round + 1
@@ -1704,7 +1679,7 @@ def next_round():
             # Debug-Ausgabe für Spielernamen in der Runde
             print(f"Match: {match['player1']} vs {match['player2']}")
 
-        writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'table_size', 'group_key'])
+        writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'dropout1', 'dropout2', 'table_size', 'group_key'])
         writer.writeheader()
         writer.writerows(match_list)
     _sync_round_to_db(tournament_id, next_round_number, match_list)
