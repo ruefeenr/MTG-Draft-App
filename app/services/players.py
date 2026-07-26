@@ -17,12 +17,14 @@ def get_or_create_player(player_name):
     existing = Player.query.filter_by(normalized_name=normalized).first()
     if existing:
         return existing
-    row = Player(name=cleaned, normalized_name=normalized)
-    db.session.add(row)
+    # Savepoint statt commit/rollback: Ein Unique-Konflikt (paralleler Request
+    # legt denselben Spieler an) darf nicht die äussere Transaktion des
+    # Aufrufers (z.B. _sync_round_to_db) zurückrollen.
     try:
-        db.session.commit()
+        with db.session.begin_nested():
+            row = Player(name=cleaned, normalized_name=normalized)
+            db.session.add(row)
     except IntegrityError:
-        db.session.rollback()
         return Player.query.filter_by(normalized_name=normalized).first()
     return row
 

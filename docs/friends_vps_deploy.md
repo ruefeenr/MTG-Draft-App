@@ -65,25 +65,19 @@ flask --app run.py db upgrade
 
 Datei `/etc/systemd/system/mtg-draft-app.service`:
 
-```ini
-[Unit]
-Description=MTG Draft App
-After=network.target
+Die versionierte Vorlage liegt unter `deploy/systemd/mtg-draft-app.service` und
+kann direkt kopiert werden:
 
-[Service]
-User=mtgapp
-Group=mtgapp
-WorkingDirectory=/opt/mtg-draft-app
-EnvironmentFile=/opt/mtg-draft-app/.env
-ExecStart=/opt/mtg-draft-app/.venv/bin/gunicorn -c gunicorn_config.py wsgi:app
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
+```bash
+sudo cp /opt/mtg-draft-app/deploy/systemd/mtg-draft-app.service /etc/systemd/system/
 ```
 
-Eine versionierte Vorlage liegt unter `deploy/systemd/mtg-draft-app.service`.
+Wichtig:
+- Die `.env` muss `FLASK_SECRET_KEY`, `DATABASE_URL` (PostgreSQL) und
+  `FLASK_ENV=production` enthalten. Ohne `FLASK_SECRET_KEY` verweigert die App
+  in Production bewusst den Start (Schutz vor Session-/CSRF-Fehlern durch
+  unterschiedliche Worker-Keys).
+- Der Service startet erst nach `network-online.target` und `postgresql.service`.
 
 Aktivieren:
 
@@ -134,67 +128,80 @@ Build:
 sudo -u claroapp npm run build
 ```
 
-Systemd-Service `/etc/systemd/system/claro-calendar.service` anlegen. Eine Vorlage liegt unter `deploy/systemd/claro-calendar.service`.
+Systemd-Service `/etc/systemd/system/claro-calendar.service` anlegen. Eine Vorlage liegt unter `deploy/systemd/claro-calendar.service`:
 
 ```bash
+sudo cp /opt/mtg-draft-app/deploy/systemd/claro-calendar.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now claro-calendar
 sudo systemctl status claro-calendar
 ```
 
+Hinweis: Die Vorlage startet das Next-Binary direkt
+(`/opt/claro-calendar/node_modules/.bin/next start -p 3000`). Dafuer muessen
+`npm ci` und `npm run build` im Verzeichnis `/opt/claro-calendar` gelaufen sein.
+
 ## 7) Nginx + HTTPS
 
-Nginx Site `/etc/nginx/sites-available/apps-homepage`:
+### 7a) TLS-Status pruefen
 
-```nginx
-server {
-    listen 80;
-    server_name example.com;
-
-    location = /mtg {
-        return 301 /mtg/;
-    }
-
-    location = /claro {
-        return 301 /claro/;
-    }
-
-    location /claro/ {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location / {
-        proxy_pass http://127.0.0.1:10000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Request-ID $request_id;
-    }
-}
-```
-
-Eine versionierte Vorlage liegt unter `deploy/nginx/apps-homepage.conf`.
-
-Aktivieren:
+Zuerst pruefen, ob bereits ein Zertifikat existiert:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/apps-homepage /etc/nginx/sites-enabled/apps-homepage
+sudo certbot certificates
+curl -I https://example.com/healthz
+```
+
+Falls kein Zertifikat existiert, eines ausstellen (dafuer muss die Domain
+per DNS auf den Server zeigen und Port 80 erreichbar sein):
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot certonly --nginx -d example.com
+```
+
+### 7b) Nginx-Site einrichten
+
+Die versionierte Vorlage liegt unter `deploy/nginx/apps-homepage.conf`.
+Sie enthaelt:
+
+- Port 80: nur ACME-Challenge + Redirect `301 https://...` (behebt das
+  fehlende HTTP-zu-HTTPS-Routing)
+- Port 443: TLS-Block mit certbot-Zertifikatspfaden und HSTS
+- `map $http_upgrade $connection_upgrade` fuer saubere Websocket-Upgrades
+  der Claro-App
+- `X-Forwarded-Proto`/`X-Forwarded-Host` fuer beide Apps (die Flask-App wertet
+  diese Header seit dem ProxyFix-Update aus)
+
+Einrichten (vorher ueberall `example.com` durch die echte Domain ersetzen):
+
+```bash
+sudo cp /opt/mtg-draft-app/deploy/nginx/apps-homepage.conf /etc/nginx/sites-available/apps-homepage
+sudo sed -i 's/example.com/DEINE-DOMAIN/g' /etc/nginx/sites-available/apps-homepage
+sudo ln -sf /etc/nginx/sites-available/apps-homepage /etc/nginx/sites-enabled/apps-homepage
+sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-TLS (Let's Encrypt):
+### 7c) HTTPS verifizieren
 
 ```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d example.com
+# HTTP muss auf HTTPS umleiten (301):
+curl -I http://DEINE-DOMAIN/mtg/
+
+# HTTPS muss funktionieren:
+curl -I https://DEINE-DOMAIN/healthz
+curl -I https://DEINE-DOMAIN/mtg/
+curl -I https://DEINE-DOMAIN/claro/
+
+# Automatische Zertifikatserneuerung testen:
+sudo certbot renew --dry-run
 ```
+
+Wichtig: In der `.env` der MTG-App muss `FLASK_ENV=production` gesetzt sein
+(Session-Cookies bekommen dann das `Secure`-Flag). Der Login funktioniert dann
+nur noch ueber HTTPS - das ist gewollt.
 
 ## 8) Backup- und Restore-Drill
 
@@ -225,3 +232,62 @@ bash scripts/postgres_restore_smoke.sh backups/<backup-file>.dump
   - Kernflow kurz testen (Start -> Save -> Next Round -> End)
 - Woechentlich:
   - einen Restore-Smoke gegen Test-DB
+
+## 10) Konfigurations-Checkliste (Produktion)
+
+Diese Punkte muessen auf dem Server erfuellt sein:
+
+- [ ] `.env` der MTG-App enthaelt:
+  - `FLASK_SECRET_KEY` (lang, zufaellig - App startet in Production sonst nicht)
+  - `DATABASE_URL=postgresql+psycopg://...` (PostgreSQL, nicht SQLite)
+  - `FLASK_ENV=production`
+  - `APP_LOGIN_ENABLED=true` + `APP_LOGIN_USERNAME`/`APP_LOGIN_PASSWORD`
+- [ ] TLS-Zertifikat vorhanden und gueltig (`sudo certbot certificates`)
+- [ ] `curl -I http://DOMAIN/` liefert `301` auf `https://`
+- [ ] `curl -I https://DOMAIN/healthz` liefert `200`
+- [ ] `curl -I https://DOMAIN/claro/` liefert `200`
+- [ ] `sudo certbot renew --dry-run` laeuft fehlerfrei
+- [ ] Beide Services laufen: `systemctl is-active mtg-draft-app claro-calendar`
+
+## 11) Troubleshooting
+
+### Logs finden
+
+```bash
+# Flask-App (gunicorn):
+sudo journalctl -u mtg-draft-app -n 200 --no-pager
+
+# Claro Calendar (Next.js):
+sudo journalctl -u claro-calendar -n 200 --no-pager
+
+# Nginx:
+sudo tail -n 100 /var/log/nginx/error.log
+sudo tail -n 100 /var/log/nginx/access.log
+```
+
+### "Internal Server Error" einem Request zuordnen
+
+Jede Antwort der MTG-App enthaelt einen `X-Request-ID` Header; die
+Fehlerseite zeigt die ID ebenfalls an. Damit laesst sich der Fehler im Log
+finden:
+
+```bash
+sudo journalctl -u mtg-draft-app --no-pager | grep "<request-id>"
+```
+
+Unbehandelte Fehler werden zusaetzlich als `unhandled_error`-Events mit
+Stacktrace geloggt:
+
+```bash
+sudo journalctl -u mtg-draft-app --no-pager | grep unhandled_error
+```
+
+### Typische Symptome
+
+| Symptom | Wahrscheinliche Ursache | Massnahme |
+|---|---|---|
+| Login-Loop / sofort wieder ausgeloggt | Seite laeuft ueber HTTP, Cookie hat `Secure`-Flag | HTTPS-Setup pruefen (Abschnitt 7) |
+| `403 CSRF_ORIGIN_MISMATCH` bei POSTs | nginx sendet `X-Forwarded-Proto` nicht oder App laeuft ohne ProxyFix | nginx-Config aus `deploy/nginx/` verwenden, App aktualisieren |
+| App startet nicht, `RuntimeError: FLASK_SECRET_KEY` | Key fehlt in `.env` | Key generieren: `python3 -c "import os; print(os.urandom(32).hex())"` |
+| `503 DB_SCHEMA_OUTDATED` | Migrationen nicht eingespielt | `flask --app run.py db upgrade` |
+| Claro-Service startet nicht | Build fehlt oder `node_modules/.bin/next` nicht vorhanden | `sudo -u claroapp npm ci && sudo -u claroapp npm run build`, dann Service neu starten |

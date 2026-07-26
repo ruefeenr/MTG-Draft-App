@@ -8,7 +8,8 @@ import logging
 import json
 from dotenv import load_dotenv
 from sqlalchemy.pool import NullPool
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
+from werkzeug.middleware.proxy_fix import ProxyFix
 from .db import db, migrate
 
 # Lade Umgebungsvariablen aus .env Datei
@@ -28,11 +29,22 @@ def _get_app_secret_key():
     """
     Liefert einen stabilen Secret Key:
     1) FLASK_SECRET_KEY aus Umgebung/.env
-    2) persistierter Key in instance/secret_key
+    2) persistierter Key in instance/secret_key (nur ausserhalb von Production)
+
+    In Production ist FLASK_SECRET_KEY Pflicht: Der Datei-Fallback ist bei
+    mehreren Gunicorn-Workern anfällig für ein Start-Race, bei dem Worker
+    unterschiedliche Keys halten (Folge: sporadische Logouts/CSRF-Fehler).
     """
     env_key = os.environ.get("FLASK_SECRET_KEY")
     if env_key:
         return env_key
+
+    if os.environ.get("FLASK_ENV") == "production":
+        raise RuntimeError(
+            "FLASK_SECRET_KEY ist nicht gesetzt. In Production muss ein stabiler "
+            "Secret Key über die Umgebung/.env bereitgestellt werden "
+            "(siehe .env.friends-prod.example)."
+        )
 
     instance_dir = "instance"
     secret_key_path = os.path.join(instance_dir, "secret_key")
@@ -59,6 +71,20 @@ def _get_app_secret_key():
 def create_app():
     global _LAST_CREATED_APP
     app = Flask(__name__)
+
+    is_production = os.environ.get("FLASK_ENV") == "production"
+
+    # Hinter einem Reverse-Proxy (nginx) müssen X-Forwarded-* Header
+    # ausgewertet werden, damit request.scheme/host_url korrekt sind
+    # (sonst schlägt u.a. der CSRF-Origin-Check hinter HTTPS fehl).
+    proxy_fix_enabled = (
+        os.environ.get("PROXY_FIX_ENABLED", "true" if is_production else "false").lower() == "true"
+    )
+    if proxy_fix_enabled:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    if is_production:
+        app.config["PREFERRED_URL_SCHEME"] = "https"
+
     schema_upgrade_hint = (
         "Datenbank-Schema ist veraltet. Bitte Migration ausführen: "
         "flask --app run.py db upgrade"
@@ -91,9 +117,11 @@ def create_app():
             "main.delete_player",
         },
     )
-    app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
-    app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
-    app.config.setdefault("SESSION_COOKIE_SECURE", os.environ.get("FLASK_ENV") == "production")
+    # Direkt setzen statt setdefault: Flask hat diese Keys bereits in der
+    # Default-Config (SECURE=False, SAMESITE=None), setdefault wäre wirkungslos.
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"] = is_production
     app.config.setdefault("APP_LOGIN_ENABLED", os.environ.get("APP_LOGIN_ENABLED", "false").lower() == "true")
     app.config.setdefault("APP_LOGIN_USERNAME", os.environ.get("APP_LOGIN_USERNAME", "mtg"))
     app.config.setdefault("APP_LOGIN_PASSWORD", os.environ.get("APP_LOGIN_PASSWORD", ""))
@@ -119,7 +147,14 @@ def create_app():
     # Für Greenfield-Setup ohne Datenmigration:
     # Tabellen bei Bedarf automatisch anlegen und Defaults sicherstellen.
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+        except (IntegrityError, OperationalError, ProgrammingError) as e:
+            # Mehrere Gunicorn-Worker starten parallel und können gleichzeitig
+            # versuchen, Tabellen anzulegen ("duplicate table" etc.).
+            # Das ist harmlos, solange die Tabellen am Ende existieren.
+            db.session.rollback()
+            app.logger.warning("db.create_all() beim Start uebersprungen: %s", e)
         try:
             ensure_default_groups()
             ensure_default_cubes()
@@ -129,6 +164,11 @@ def create_app():
             db.session.rollback()
             app.config["DB_SCHEMA_OUTDATED"] = True
             app.logger.error(schema_upgrade_hint)
+        except (IntegrityError, OperationalError) as e:
+            # Race beim parallelen Seeding der Default-Daten durch mehrere
+            # Worker: Ein anderer Worker hat die Defaults bereits angelegt.
+            db.session.rollback()
+            app.logger.warning("Default-Seeding beim Start uebersprungen: %s", e)
 
     @app.context_processor
     def inject_csrf_token():
@@ -237,6 +277,67 @@ def create_app():
     @app.route("/mtg/healthz", methods=["GET"])
     def mtg_healthz():
         return jsonify({"status": "ok"}), 200
+
+    def _wants_json_response():
+        if "/api/" in request.path:
+            return True
+        accept = request.accept_mimetypes
+        return bool(accept) and accept["application/json"] >= accept["text/html"]
+
+    @app.errorhandler(404)
+    def handle_not_found(error):
+        if _wants_json_response():
+            return jsonify({
+                "success": False,
+                "code": "NOT_FOUND",
+                "message": "Die angeforderte Ressource wurde nicht gefunden.",
+            }), 404
+        return (
+            "<h1>Seite nicht gefunden</h1>"
+            "<p>Die angeforderte Seite existiert nicht. "
+            "<a href='/mtg/'>Zur\u00fcck zur Startseite</a></p>",
+            404,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    @app.errorhandler(500)
+    def handle_internal_error(error):
+        request_id = getattr(g, "request_id", None)
+        # DB-Session aufräumen, damit Folge-Requests nicht auf einer
+        # kaputten Transaktion arbeiten.
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        try:
+            app.logger.error(
+                json.dumps(
+                    {
+                        "event": "unhandled_error",
+                        "request_id": request_id,
+                        "method": request.method,
+                        "path": request.path,
+                        "error": str(getattr(error, "original_exception", None) or error),
+                    }
+                ),
+                exc_info=getattr(error, "original_exception", None) or error,
+            )
+        except Exception:
+            pass
+        if _wants_json_response():
+            return jsonify({
+                "success": False,
+                "code": "INTERNAL_ERROR",
+                "message": "Interner Serverfehler. Bitte erneut versuchen.",
+                "request_id": request_id,
+            }), 500
+        return (
+            "<h1>Interner Serverfehler</h1>"
+            "<p>Es ist ein unerwarteter Fehler aufgetreten. Bitte lade die Seite neu.</p>"
+            f"<p><small>Request-ID: {request_id or '-'}</small></p>",
+            500,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
 
     if not app.logger.handlers:
         logging.basicConfig(level=logging.INFO)

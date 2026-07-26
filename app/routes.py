@@ -9,6 +9,7 @@ import json
 import hashlib
 import hmac
 from werkzeug.security import check_password_hash
+from .atomic_io import atomic_write
 from .services.players import get_or_create_player, list_player_names
 from .services.tournaments import set_tournament_status
 from .models import Match, Player, PlayerPowerNine, Round, Tournament
@@ -587,11 +588,14 @@ def load_tournament(tournament_id):
 
 @main.route("/api/groupings", methods=["POST"])
 def api_groupings():
-    players = request.json.get("players", [])
-    group_sizes = request.json.get("group_sizes", [])
+    payload = request.get_json(silent=True) or {}
+    players = payload.get("players", [])
+    group_sizes = payload.get("group_sizes", [])
+    if not isinstance(players, list) or not isinstance(group_sizes, list):
+        return jsonify([])
     try:
         allowed_sizes = [int(size) for size in group_sizes if int(size) in [6, 8, 10, 12]]
-    except ValueError:
+    except (TypeError, ValueError):
         return jsonify([])
     groupings = find_all_valid_groupings(len(players), allowed_sizes)
     return jsonify(groupings)
@@ -721,13 +725,16 @@ def _create_started_tournament(players, table_size, group_id, cube_id, pairing_m
             "group_key": group_key,
         })
 
-    with open(os.path.join(data_dir, "player_groups.json"), "w", encoding="utf-8") as f:
-        json.dump(player_groups, f)
+    atomic_write(
+        os.path.join(data_dir, "player_groups.json"),
+        lambda f: json.dump(player_groups, f),
+    )
 
     rounds_dir = os.path.join(data_dir, "rounds")
     os.makedirs(rounds_dir, exist_ok=True)
     round_file = os.path.join(rounds_dir, "round_1.csv")
-    with open(round_file, "w", newline="", encoding="utf-8") as f:
+
+    def _write_round_file(f):
         writer = csv.DictWriter(
             f,
             fieldnames=[
@@ -745,6 +752,8 @@ def _create_started_tournament(players, table_size, group_id, cube_id, pairing_m
         )
         writer.writeheader()
         writer.writerows(match_list)
+
+    atomic_write(round_file, _write_round_file, newline="")
 
     _sync_round_to_db(tournament_id, 1, match_list)
 
@@ -1048,8 +1057,10 @@ def pair():
                     table_nr += 1
 
         # Speichere die Spielergruppen in einer JSON-Datei
-        with open(os.path.join(data_dir, "player_groups.json"), "w") as f:
-            json.dump(player_groups, f)
+        atomic_write(
+            os.path.join(data_dir, "player_groups.json"),
+            lambda f: json.dump(player_groups, f),
+        )
 
         session["player_groups"] = player_groups
 
@@ -1062,10 +1073,12 @@ def pair():
         os.makedirs(rounds_dir, exist_ok=True)
         round_file = os.path.join(rounds_dir, f'round_{current_round}.csv')
         
-        with open(round_file, 'w', newline='', encoding='utf-8') as f:
+        def _write_pair_round(f):
             writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'table_size', 'group_key'])
             writer.writeheader()
             writer.writerows(match_list)
+
+        atomic_write(round_file, _write_pair_round, newline="")
         _sync_round_to_db(tournament_id, current_round, match_list)
         
         # Leite zur show_round Route weiter
@@ -1191,6 +1204,13 @@ def save_results():
                 reader = csv.DictReader(f)
                 fieldnames = reader.fieldnames
                 print(f"Feldnamen in CSV: {fieldnames}")
+                if not fieldnames:
+                    print(f"FEHLER: Rundendatei ist leer oder ohne Header: {round_file}")
+                    return jsonify({
+                        "success": False,
+                        "message": "Rundendatei ist leer oder beschädigt. Bitte Seite neu laden und erneut versuchen.",
+                    }), 500
+                fieldnames = list(fieldnames)
                 
                 # Stelle sicher, dass alle benötigten Felder in fieldnames sind
                 required_fields = ['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'table_size',
@@ -1280,12 +1300,14 @@ def save_results():
             table_size_value = match.get("table_size", "nicht gesetzt")
             print(f"Match {i+1}: Tisch {match.get('table', '')}, {match.get('player1', '')} vs {match.get('player2', '')}, Score: {match.get('score1', '')}-{match.get('score2', '')}-{match.get('score_draws', '0')}, Tischgrösse: {table_size_value}")
         
-        # Datei zurückschreiben
+        # Datei zurückschreiben (atomar, damit parallele Leser nie eine halbe Datei sehen)
         try:
-            with open(round_file, "w", newline="", encoding="utf-8") as f:
+            def _write_updated_round(f):
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(matches)
+
+            atomic_write(round_file, _write_updated_round, newline="")
             print(f"Rundendatei erfolgreich aktualisiert")
         except Exception as e:
             print(f"Fehler beim Schreiben der Rundendatei: {e}")
@@ -1344,10 +1366,12 @@ def save_results():
                 }
             )
 
-            with open(results_file, "w", newline="", encoding="utf-8") as csvfile:
+            def _write_results(csvfile):
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(normalized_rows)
+
+            atomic_write(results_file, _write_results, newline="")
             print("Ergebnis in results.csv gespeichert")
         except Exception as e:
             print(f"Fehler beim Speichern in results.csv: {e}")
@@ -1565,8 +1589,13 @@ def next_round():
     if not os.path.exists(player_groups_file):
         return redirect(url_for('main.index', error="Spielergruppen nicht gefunden"))
     
-    with open(player_groups_file, 'r', encoding='utf-8') as f:
-        player_groups = json.load(f)
+    try:
+        with open(player_groups_file, 'r', encoding='utf-8') as f:
+            player_groups = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"Fehler beim Lesen der Spielergruppen: {e}")
+        flash("Spielergruppen konnten nicht gelesen werden. Bitte erneut versuchen.")
+        return redirect(url_for("main.index"))
     
     # Stelle sicher, dass die markierten Spieler in der Session bleiben
     session["leg_players_set"] = get_marked_players_for_tournament(tournament_id)
@@ -1674,14 +1703,16 @@ def next_round():
     next_round_number = current_round + 1
     next_round_file = os.path.join(rounds_dir, f'round_{next_round_number}.csv')
     
-    with open(next_round_file, 'w', newline='', encoding='utf-8') as f:
-        for match in match_list:
-            # Debug-Ausgabe für Spielernamen in der Runde
-            print(f"Match: {match['player1']} vs {match['player2']}")
+    for match in match_list:
+        # Debug-Ausgabe für Spielernamen in der Runde
+        print(f"Match: {match['player1']} vs {match['player2']}")
 
+    def _write_next_round(f):
         writer = csv.DictWriter(f, fieldnames=['table', 'player1', 'player2', 'score1', 'score2', 'score_draws', 'dropout1', 'dropout2', 'table_size', 'group_key'])
         writer.writeheader()
         writer.writerows(match_list)
+
+    atomic_write(next_round_file, _write_next_round, newline="")
     _sync_round_to_db(tournament_id, next_round_number, match_list)
 
     # Speichere die BYE Matches in der results.csv
@@ -1825,10 +1856,12 @@ def save_round_pairings(round_number):
         row_copy["player2"] = submitted["player2"]
         updated_rows.append(row_copy)
 
-    with open(round_file, "w", newline="", encoding="utf-8") as f:
+    def _write_pairings(f):
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(updated_rows)
+
+    atomic_write(round_file, _write_pairings, newline="")
 
     _sync_round_to_db(tournament_id, round_number, updated_rows)
     return jsonify({"success": True, "message": "Paarungen wurden gespeichert."})
@@ -1941,8 +1974,13 @@ def end_tournament():
     player_groups = {}
     player_groups_file = os.path.join(data_dir, "player_groups.json")
     if os.path.exists(player_groups_file):
-        with open(player_groups_file, "r") as f:
-            player_groups = json.load(f)
+        try:
+            with open(player_groups_file, "r", encoding="utf-8") as f:
+                player_groups = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            # Endstand soll auch ohne Gruppendaten erzeugt werden können.
+            print(f"Fehler beim Lesen der Spielergruppen: {e}")
+            player_groups = {}
     
     # Rendere die Endstand-Seite
     tournament_data = {
@@ -1962,11 +2000,13 @@ def end_tournament():
     os.makedirs(tournament_results_dir, exist_ok=True)
     
     results_file = os.path.join(tournament_results_dir, f"{tournament_id}_results.json")
-    with open(results_file, "w", encoding="utf-8") as f:
-        json.dump({
+    atomic_write(
+        results_file,
+        lambda f: json.dump({
             "tournament_data": tournament_data,
             "final_leaderboard": final_leaderboard
-        }, f)
+        }, f),
+    )
     
     # Speichere den Status des Turniers in der Session
     # Entferne nicht die tournament_id, damit der Benutzer zurückkehren kann
@@ -1975,8 +2015,7 @@ def end_tournament():
     
     # Erstelle eine end_time.txt-Datei im Turnierverzeichnis für konsistente Endstatus-Prüfung
     end_time_file = os.path.join(data_dir, "end_time.txt")
-    with open(end_time_file, "w", encoding="utf-8") as f:
-        f.write(datetime.now().strftime("%d.%m.%Y %H:%M"))
+    atomic_write(end_time_file, lambda f: f.write(datetime.now().strftime("%d.%m.%Y %H:%M")))
     
     return render_template(
         "tournament_end.html",
@@ -2003,8 +2042,7 @@ def show_round(round_number):
         end_time_file = os.path.join(data_dir, "end_time.txt")
         if not os.path.exists(end_time_file):
             try:
-                with open(end_time_file, "w", encoding="utf-8") as f:
-                    f.write(datetime.now().strftime("%d.%m.%Y %H:%M"))
+                atomic_write(end_time_file, lambda f: f.write(datetime.now().strftime("%d.%m.%Y %H:%M")))
                 session["tournament_ended"] = True
                 print(f"Turnier {tournament_id} wurde als beendet markiert durch ensure_marked_as_ended Parameter")
             except Exception as e:
@@ -2210,26 +2248,34 @@ def calculate_leaderboard(tournament_id, up_to_round):
                 with open(round_file, "r", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
                     for match in reader:
-                        player1 = match["player1"]
-                        player2 = match["player2"]
+                        try:
+                            player1 = match["player1"]
+                            player2 = match["player2"]
+                            if not player1 or not player2:
+                                continue
+
+                            # Wenn es ein BYE Match ist, bekommt der aktive Spieler 2 Siege
+                            if player2 == "BYE":
+                                score1 = 2
+                                score2 = 0
+                                score_draws = 0
+                            # Nur wenn beide Scores eingetragen sind
+                            elif match["score1"] and match["score2"]:
+                                score1 = int(match["score1"])
+                                score2 = int(match["score2"])
+
+                                # Unentschieden berücksichtigen, falls vorhanden
+                                score_draws = 0
+                                if "score_draws" in match and match["score_draws"]:
+                                    score_draws = int(match["score_draws"])
+                            else:
+                                continue  # Überspringe Matches ohne Ergebnis
+                        except (KeyError, TypeError, ValueError) as e:
+                            # Korrupte oder unvollständige CSV-Zeile überspringen statt 500
+                            print(f"Überspringe ungültige Match-Zeile in Runde {round_num}: {e}")
+                            continue
+
                         
-                        # Wenn es ein BYE Match ist, bekommt der aktive Spieler 2 Siege
-                        if player2 == "BYE":
-                            score1 = 2
-                            score2 = 0
-                            score_draws = 0
-                        # Nur wenn beide Scores eingetragen sind
-                        elif match["score1"] and match["score2"]:
-                            score1 = int(match["score1"])
-                            score2 = int(match["score2"])
-                            
-                            # Unentschieden berücksichtigen, falls vorhanden
-                            score_draws = 0
-                            if "score_draws" in match and match["score_draws"]:
-                                score_draws = int(match["score_draws"])
-                        else:
-                            continue  # Überspringe Matches ohne Ergebnis
-                            
                         # Debug-Ausgabe
                         print(f"  Match: {player1} vs {player2}, Ergebnis: {score1}-{score2}-{score_draws}")
                         
@@ -2274,7 +2320,7 @@ def calculate_leaderboard(tournament_id, up_to_round):
                         
                         stats[player1]['matches'] += 1
                         stats[player2]['matches'] += 1
-            except (IOError, OSError) as e:
+            except (IOError, OSError, csv.Error) as e:
                 print(f"Fehler beim Lesen der Runde {round_num}: {e}")
         else:
             print(f"Runde {round_num} nicht gefunden")
@@ -2566,7 +2612,7 @@ def update_player_power_nine_api(player_name):
     from .player_stats import update_player_power_nine, POWER_NINE
     
     # Hole die Power Nine Daten aus dem Request
-    power_nine_data = request.json
+    power_nine_data = request.get_json(silent=True)
     
     if not power_nine_data:
         return jsonify({

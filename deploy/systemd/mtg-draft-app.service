@@ -1,15 +1,24 @@
 [Unit]
 Description=MTG Draft App
-After=network.target
+# network-online statt network: erst starten, wenn das Netzwerk wirklich
+# verfuegbar ist (wichtig fuer die DB-Verbindung nach einem Reboot).
+Wants=network-online.target
+After=network-online.target postgresql.service
 
 [Service]
 User=mtgapp
 Group=mtgapp
 WorkingDirectory=/opt/mtg-draft-app
+# .env muss enthalten: FLASK_SECRET_KEY, DATABASE_URL (PostgreSQL),
+# FLASK_ENV=production, APP_LOGIN_* (siehe .env.friends-prod.example).
 EnvironmentFile=/opt/mtg-draft-app/.env
 ExecStart=/opt/mtg-draft-app/.venv/bin/gunicorn -c gunicorn_config.py wsgi:app
 Restart=always
 RestartSec=3
+
+# Basis-Haertung
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

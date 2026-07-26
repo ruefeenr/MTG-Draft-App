@@ -5,6 +5,7 @@ import os
 from flask import has_app_context
 
 from . import get_last_created_app
+from .atomic_io import atomic_write
 from .models import Tournament
 from .services import cubes as cube_service
 from .services import groups as group_service
@@ -231,8 +232,7 @@ def save_tournament_meta(meta):
         return False
     os.makedirs("data", exist_ok=True)
     path = os.path.join("data", "tournament_meta.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, ensure_ascii=False)
+    atomic_write(path, lambda f: json.dump(meta, f, indent=2, ensure_ascii=False))
     return True
 
 

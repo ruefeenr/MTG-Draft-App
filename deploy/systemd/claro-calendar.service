@@ -1,6 +1,7 @@
 [Unit]
 Description=Claro Calendar
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 User=claroapp
@@ -8,9 +9,17 @@ Group=claroapp
 WorkingDirectory=/opt/claro-calendar
 EnvironmentFile=/opt/claro-calendar/.env.local
 Environment=PORT=3000
-ExecStart=/usr/bin/npm run start
+Environment=NODE_ENV=production
+# Direkter Aufruf des Next-Binaries statt "npm run start": robuster gegenueber
+# npm-/PATH-Problemen unter systemd. Voraussetzung: "npm ci" und "npm run build"
+# wurden im WorkingDirectory ausgefuehrt.
+ExecStart=/opt/claro-calendar/node_modules/.bin/next start -p 3000
 Restart=always
 RestartSec=3
+
+# Basis-Haertung
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
